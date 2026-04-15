@@ -1,0 +1,33 @@
+# EurekaAI — Dependencies
+# Core
+torch>=2.1.0
+numpy>=1.24.0
+tqdm>=4.65.0
+pyyaml>=6.0
+
+# Tokenizer
+sentencepiece>=0.1.99
+tokenizers>=0.15.0
+
+# Data
+datasets>=2.14.0
+requests>=2.31.0
+httpx>=0.25.0
+
+# Teacher (Ollama)
+httpx[asyncio]>=0.25.0
+
+# Evaluation
+sacrebleu>=2.3.1
+rouge-score>=0.1.2
+
+# Experiment tracking (optional)
+wandb>=0.16.0
+
+# HuggingFace compatible export
+transformers>=4.35.0
+safetensors>=0.4.0
+
+# Dev
+pytest>=7.4.0
+black>=23.0.0

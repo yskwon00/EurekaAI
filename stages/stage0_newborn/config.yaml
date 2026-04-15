@@ -1,0 +1,63 @@
+stage: 0
+name: "stage0_newborn"
+description: "신생아 단계: 문자와 기초 패턴 학습"
+
+model:
+  vocab_size: 32000
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1024
+  max_seq_len: 128        # Stage 0: very short context
+  dropout: 0.2            # Higher dropout (larger dataset, less overfitting risk)
+  tie_weights: true
+  rope_base: 10000.0
+
+training:
+  learning_rate: 3e-4
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  warmup_steps: 200
+  batch_size: 64
+  gradient_accumulation_steps: 1
+  max_steps: 3000          # ~4-5 epochs over 20K samples
+  eval_interval: 300
+  save_interval: 1000
+  log_interval: 50
+  device: "auto"           # mps > cuda > cpu
+  fp16: false
+  bf16: false
+
+data:
+  train_path: "data/processed/stage0/train_stage0.jsonl"
+  eval_path: "data/processed/stage0/eval_stage0.jsonl"
+  max_seq_len: 128
+  mode: "clm"              # Causal Language Modeling
+
+tokenizer:
+  path: "data/tokenizer/eureka.model"
+
+teacher:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  model: "gemma4:e4b"
+  synthetic_ratio: 0.3
+
+continual:
+  ewc_lambda: 0.0          # No EWC for Stage 0 (first stage)
+  replay_ratio: 0.0        # No replay for Stage 0
+
+graduation:
+  metric: "ppl"
+  threshold: 30.0
+  direction: "lower"
+
+paths:
+  checkpoint_dir: "checkpoints/stage0"
+  tokenizer_path: "data/tokenizer/eureka.model"
+
+logging:
+  use_wandb: false
+  log_interval: 20

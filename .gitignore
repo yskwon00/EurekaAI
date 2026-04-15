@@ -1,0 +1,54 @@
+# Python
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+.Python
+*.egg-info/
+dist/
+build/
+*.egg
+.eggs/
+*.whl
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Data, Checkpoints, and Logs
+data/
+checkpoints/
+logs/
+*.log
+
+# Jupyter
+.ipynb_checkpoints/
+*.ipynb
+
+# IDE
+.vscode/
+.idea/
+*.swp
+*.swo
+.DS_Store
+
+# W&B
+wandb/
+
+# Docker
+.docker/
+
+# Env
+.env
+*.env
+
+# Test artifacts
+.pytest_cache/
+htmlcov/
+.coverage
+
+# Model configs to KEEP tracked
+!stages/**/config.yaml
+!config/

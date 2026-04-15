@@ -1,0 +1,65 @@
+version: "3.9"
+
+services:
+  # ── EurekaAI Trainer ───────────────────────────────────────────────────────
+  trainer:
+    build: .
+    image: eureka-ai:latest
+    container_name: eureka_trainer
+    runtime: ${RUNTIME:-runc}       # Override with 'nvidia' for GPU cloud
+    environment:
+      - DEVICE=${DEVICE:-auto}      # auto / cuda / cpu
+      - OLLAMA_URL=http://ollama:11434
+      - PYTHONPATH=/app
+      - TOKENIZERS_PARALLELISM=false
+    volumes:
+      - ./data:/app/data
+      - ./checkpoints:/app/checkpoints
+      - ./logs:/app/logs
+    depends_on:
+      ollama:
+        condition: service_healthy
+    command: python run.py --stage all
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: ${GPU_DRIVER:-}
+              count: ${GPU_COUNT:-0}
+              capabilities: [gpu]
+
+  # ── Ollama Teacher ─────────────────────────────────────────────────────────
+  ollama:
+    image: ollama/ollama:latest
+    container_name: eureka_ollama
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama_models:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 20s
+
+  # ── Jupyter (optional, for exploration) ───────────────────────────────────
+  notebook:
+    build: .
+    container_name: eureka_notebook
+    ports:
+      - "8888:8888"
+    volumes:
+      - .:/app
+    command: >
+      bash -c "pip install jupyter -q &&
+               jupyter notebook --ip=0.0.0.0 --port=8888
+               --no-browser --allow-root --notebook-dir=/app"
+    profiles: ["dev"]
+
+volumes:
+  ollama_models:
+
+networks:
+  default:
+    name: eureka_network
