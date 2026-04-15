@@ -1,6 +1,6 @@
 stage: 1
 name: "stage1_toddler"
-description: "유아기 단계: 단어 의미 및 기초 문장 학습"
+description: "유아기 단계: 단어 의미 및 기초 문장 학습 (v1)"
 
 model:
   vocab_size: 32000
@@ -9,23 +9,23 @@ model:
   num_heads: 8
   intermediate_size: 1024
   max_seq_len: 256        # Stage 1: slightly longer context
-  dropout: 0.15
+  dropout: 0.35           # Stage 0와 동일하게 과적합 방지 유지
   tie_weights: true
   rope_base: 10000.0
 
 training:
-  learning_rate: 2e-4
+  learning_rate: 2.0e-4
   weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
   grad_clip: 1.0
-  warmup_steps: 300
-  batch_size: 32           # Half batch size because max_seq_len doubled
-  gradient_accumulation_steps: 2
-  max_steps: 4000
-  eval_interval: 400
-  save_interval: 1000
-  log_interval: 50
+  warmup_steps: 500
+  batch_size: 8            # MPS 메모리 제한 (max_seq_len=256 두배 증가)
+  gradient_accumulation_steps: 4  # effective batch = 32
+  max_steps: 10000         # ~5 epochs over ~60K samples
+  eval_interval: 1000
+  save_interval: 2000
+  log_interval: 100
   device: "auto"
   fp16: false
   bf16: false
@@ -55,4 +55,5 @@ graduation:
   direction: "higher"
 
 paths:
-  checkpoint_dir: "checkpoints/stage1"
+  checkpoint_dir: "checkpoints/stage1_toddler"
+  tokenizer_path: "data/tokenizer/eureka.model"
