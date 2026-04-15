@@ -9,7 +9,7 @@ model:
   num_heads: 8
   intermediate_size: 1024
   max_seq_len: 128        # Stage 0: very short context
-  dropout: 0.2            # Higher dropout (larger dataset, less overfitting risk)
+  dropout: 0.35           # 과적합 방지를 위해 높임 (0.2 → 0.35)
   tie_weights: true
   rope_base: 10000.0
 

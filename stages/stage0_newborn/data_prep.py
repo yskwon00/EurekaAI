@@ -152,21 +152,30 @@ def download_tiny_stories(max_samples: int = 3000) -> list[dict]:
         return []
 
 
-def download_korean_texts(max_samples: int = 2000) -> list[dict]:
-    """Download Korean Wikipedia texts."""
+def download_korean_texts(
+    max_articles: int = 300,
+    max_sentences: int = 12000,   # ← 전체 문장 수 상한 (핵심 추가)
+    min_len: int = 15,
+    max_len: int = 200,
+) -> list[dict]:
+    """Download Korean Wikipedia texts — capped at max_sentences total."""
     samples = []
     try:
         from datasets import load_dataset
-        logger.info("📥 Downloading Korean Wikipedia...")
-        ko_ds = load_dataset("wikimedia/wikipedia", "20231101.ko", split=f"train[:{max_samples}]")
+        logger.info(f"📥 Korean Wikipedia (최대 {max_articles}개 문서, {max_sentences:,}문장 상한)...")
+        ko_ds = load_dataset("wikimedia/wikipedia", "20231101.ko", split=f"train[:{max_articles}]")
         for item in ko_ds:
+            if len(samples) >= max_sentences:
+                break
             text = item.get("text", "").strip()
-            # Split into sentences
             for sent in text.replace("。", ".").split("."):
                 sent = sent.strip()
-                if 15 <= len(sent) <= 300:
+                if min_len <= len(sent) <= max_len:
                     samples.append({"text": sent, "source": "wiki_ko", "stage": 0})
-        logger.info(f"✅ Korean wiki sentences: {len(samples):,}")
+                    if len(samples) >= max_sentences:
+                        break
+        random.shuffle(samples)
+        logger.info(f"✅ Korean wiki sentences: {len(samples):,} (상한 {max_sentences:,})")
     except Exception as e:
         logger.warning(f"⚠️  Korean corpus failed: {e}")
     return samples
@@ -198,28 +207,33 @@ def save_jsonl(samples: list[dict], path: Path):
 
 
 def main():
-    logger.info("=" * 55)
-    logger.info("   EurekaAI — Stage 0: Data Preparation (v2)")
-    logger.info("=" * 55)
+    logger.info("=" * 60)
+    logger.info("   EurekaAI — Stage 0: Data Preparation (v3 — 과적합 방지)")
+    logger.info("=" * 60)
+    logger.info("목표 데이터 비율:")
+    logger.info("  TinyStories (단순 영문)  : ~30%")
+    logger.info("  Tokenizer corpus (Ko+En): ~30%")
+    logger.info("  Korean Wikipedia (캡핑)  : ~25%")
+    logger.info("  Seed / Mixed patterns   :  ~15%")
 
     all_samples = []
 
-    # 1. PRIMARY: Tokenizer corpus (43MB, Ko+En sentences)
+    # 1. TinyStories — 단순하고 다양한 영어 문장 (과적합 방지에 최적)
+    all_samples += download_tiny_stories(max_samples=10000)
+
+    # 2. Tokenizer corpus (Ko+En)
     all_samples += load_from_tokenizer_corpus(max_samples=15000)
 
-    # 2. TinyStories (English)
-    all_samples += download_tiny_stories(max_samples=3000)
+    # 3. Korean Wikipedia — 문장 수 상한 15K로 엄격히 제한
+    all_samples += download_korean_texts(max_articles=500, max_sentences=12000)
 
-    # 3. Korean Wikipedia
-    all_samples += download_korean_texts(max_samples=2000)
+    # 4. Ollama synthetic (가능하면)
+    all_samples += generate_synthetic_samples(n=500)
 
-    # 4. Ollama synthetic
-    all_samples += generate_synthetic_samples(n=300)
+    # 5. Seed texts — 더 많은 반복으로 기초 패턴 강화
+    all_samples += generate_seed_corpus(n_repeat=20)
 
-    # 5. Built-in seed (small, always available)
-    all_samples += generate_seed_corpus(n_repeat=5)
-
-    # Deduplicate + shuffle
+    # 중복 제거 + 셔플
     seen = set()
     deduped = []
     for s in all_samples:
@@ -230,20 +244,23 @@ def main():
     random.shuffle(deduped)
     all_samples = deduped
 
-    logger.info(f"\n📊 Total unique samples: {len(all_samples):,}")
+    logger.info(f"\n📊 최종 데이터 구성 ({len(all_samples):,}개):")
     from collections import Counter
+    total = len(all_samples)
     for src, cnt in Counter(s["source"] for s in all_samples).most_common():
-        logger.info(f"   {src:25s}: {cnt:6,}")
+        pct = cnt / total * 100
+        logger.info(f"   {src:25s}: {cnt:6,} ({pct:.1f}%)")
 
-    # Train / eval split (10%)
-    n_eval = min(TARGET_EVAL, int(len(all_samples) * 0.1))
+    # Train / eval 분리 (10%)
+    n_eval = min(TARGET_EVAL, int(total * 0.1))
+    random.shuffle(all_samples)
     eval_samples  = all_samples[:n_eval]
     train_samples = all_samples[n_eval:]
 
     save_jsonl(train_samples, TRAIN_FILE)
     save_jsonl(eval_samples,  EVAL_FILE)
 
-    logger.info(f"\n✅ Stage 0 data ready:")
+    logger.info(f"\n✅ Stage 0 데이터 준비 완료:")
     logger.info(f"   Train: {len(train_samples):,} → {TRAIN_FILE}")
     logger.info(f"   Eval:  {len(eval_samples):,}  → {EVAL_FILE}")
 
