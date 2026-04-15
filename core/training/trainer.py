@@ -251,12 +251,21 @@ class EurekaTrainer:
         with torch.no_grad():
             for batch in self.eval_loader:
                 input_ids = batch["input_ids"].to(self.device)
-                labels = batch.get("labels", input_ids.clone())
-                labels[:, :-1] = input_ids[:, 1:]
-                labels[:, -1] = -100
+
+                # ── labels: 배치에 이미 있으면 사용, 없으면 CLM 방식으로 생성
+                labels = batch.get("labels", None)
+                if labels is None:
+                    labels = input_ids.clone()
+                    labels[:, :-1] = input_ids[:, 1:]
+                    labels[:, -1] = -100
                 labels = labels.to(self.device)
 
-                outputs = self.model(input_ids, labels=labels)
+                # ── attention_mask 반영
+                attention_mask = batch.get("attention_mask", None)
+                if attention_mask is not None:
+                    attention_mask = attention_mask.to(self.device)
+
+                outputs = self.model(input_ids, labels=labels, attention_mask=attention_mask)
                 total_loss += outputs["loss"].item()
                 n_batches += 1
 
