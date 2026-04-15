@@ -84,10 +84,40 @@ class EurekaConfig:
 
     @classmethod
     def from_yaml(cls, path: str) -> "EurekaConfig":
-        """Load config from a YAML file (stage-specific overrides)."""
+        """Load config from a YAML file (stage-specific overrides).
+
+        YAML은 model:/training:/paths: 등 중첩 섹션으로 구성됩니다.
+        이 메서드는 중첩 섹션을 flat하게 펼쳐서 EurekaConfig에 적용합니다.
+        """
         with open(path, "r", encoding="utf-8") as f:
             d = yaml.safe_load(f)
-        return cls(**{k: v for k, v in d.items() if k in cls.__dataclass_fields__})
+
+        flat: dict = {}
+        # 중첩 섹션 펼치기 (model, training, data, paths, tokenizer, continual, logging 등)
+        nested_sections = {"model", "training", "data", "paths", "tokenizer",
+                           "continual", "logging", "teacher"}
+        for key, val in d.items():
+            if key in nested_sections and isinstance(val, dict):
+                flat.update(val)   # 섹션 내부 값들을 flat으로 병합
+            elif key not in nested_sections:
+                flat[key] = val    # 최상위 키 (stage, name 등)는 그대로
+
+        # EurekaConfig 필드에 있는 키만 필터링 + 타입 안전 형변환
+        fields = cls.__dataclass_fields__
+        kwargs = {}
+        for k, v in flat.items():
+            if k not in fields:
+                continue
+            field_type = fields[k].type
+            try:
+                if field_type in ("float", float) or (isinstance(field_type, str) and "float" in field_type):
+                    v = float(v)
+                elif field_type in ("int", int) or (isinstance(field_type, str) and field_type == "int"):
+                    v = int(v)
+            except (TypeError, ValueError):
+                pass
+            kwargs[k] = v
+        return cls(**kwargs)
 
     @classmethod
     def from_json(cls, path: str) -> "EurekaConfig":

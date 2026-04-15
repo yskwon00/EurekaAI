@@ -182,9 +182,16 @@ def main(config_path: str = None):
     logger.info("=" * 55)
 
     # ── Load Config ────────────────────────────────────────────────────────────
+    # config.yaml을 기본값으로 사용 (--config 없이 실행해도 자동 적용)
+    default_config = Path(__file__).parent / "config.yaml"
+    if config_path is None and default_config.exists():
+        config_path = str(default_config)
+        logger.info(f"📋 config.yaml 자동 적용: {config_path}")
+
     if config_path:
         config = EurekaConfig.from_yaml(config_path)
     else:
+        logger.warning("⚠️  config.yaml 없음 — tiny_config() 기본값 사용")
         config = tiny_config()
         config.max_seq_len = 128
         config.batch_size = 64
