@@ -1,0 +1,58 @@
+stage: 1
+name: "stage1_toddler"
+description: "유아기 단계: 단어 의미 및 기초 문장 학습"
+
+model:
+  vocab_size: 32000
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1024
+  max_seq_len: 256        # Stage 1: slightly longer context
+  dropout: 0.15
+  tie_weights: true
+  rope_base: 10000.0
+
+training:
+  learning_rate: 2e-4
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  warmup_steps: 300
+  batch_size: 32           # Half batch size because max_seq_len doubled
+  gradient_accumulation_steps: 2
+  max_steps: 4000
+  eval_interval: 400
+  save_interval: 1000
+  log_interval: 50
+  device: "auto"
+  fp16: false
+  bf16: false
+
+data:
+  train_path: "data/processed/stage1/train_stage1.jsonl"
+  eval_path: "data/processed/stage1/eval_stage1.jsonl"
+  max_seq_len: 256
+  mode: "clm"
+
+tokenizer:
+  path: "data/tokenizer/eureka.model"
+
+teacher:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  model: "gemma4:e4b"
+  synthetic_ratio: 0.4
+
+continual:
+  ewc_lambda: 5000.0       # Enable EWC to preserve Stage 0 character knowledge
+  replay_ratio: 0.2        # Replay 20% Stage 0 data
+
+graduation:
+  metric: "accuracy"       # Word completion/analogy accuracy
+  threshold: 0.50
+  direction: "higher"
+
+paths:
+  checkpoint_dir: "checkpoints/stage1"

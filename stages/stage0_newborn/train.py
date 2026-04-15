@@ -11,6 +11,7 @@ import sys
 import math
 import logging
 import argparse
+from datetime import datetime
 from pathlib import Path
 
 import torch
@@ -26,11 +27,37 @@ from core.training.trainer import EurekaTrainer
 from core.curriculum.progression import ProgressionManager
 from torch.utils.data import DataLoader
 
-logging.basicConfig(
-    level=logging.INFO,
-    format="%(asctime)s [%(levelname)s] %(message)s",
-)
+def setup_logging(log_dir: str = "logs") -> str:
+    """콘솔 + 파일에 동시에 로그를 출력하도록 설정."""
+    log_path = Path(log_dir)
+    log_path.mkdir(parents=True, exist_ok=True)
+
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    log_file = log_path / f"stage0_newborn_{timestamp}.log"
+
+    fmt = "%(asctime)s [%(levelname)s] %(message)s"
+
+    # 콘솔 핸들러
+    console_handler = logging.StreamHandler(sys.stdout)
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter(fmt))
+
+    # 파일 핸들러
+    file_handler = logging.FileHandler(log_file, encoding="utf-8")
+    file_handler.setLevel(logging.INFO)
+    file_handler.setFormatter(logging.Formatter(fmt))
+
+    root_logger = logging.getLogger()
+    root_logger.setLevel(logging.INFO)
+    root_logger.addHandler(console_handler)
+    root_logger.addHandler(file_handler)
+
+    return str(log_file)
+
+
+log_file_path = setup_logging("logs")
 logger = logging.getLogger(__name__)
+logger.info(f"📄 로그 파일: {log_file_path}")
 
 
 def ensure_tokenizer(config: EurekaConfig) -> EurekaTokenizer:

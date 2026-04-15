@@ -236,6 +236,11 @@ Stage N+1 학습  →  Task Loss + EWC Penalty + Replay Data (20%)
 # 특정 stage 평가만
 python run.py --eval --stage 0
 
+[예시]
+cd (~/MyWorkspace)/EurekaAI
+nohup .venv/bin/python3 stages/stage0_newborn/train.py > /dev/null 2>&1 &  # 백그라운드 재시작
+tail -f logs/stage0_newborn_*.log  # 실시간 로그 확인
+
 # 커스텀 설정으로 학습
 python run.py --stage 0 --config stages/stage0_newborn/config.yaml
 
