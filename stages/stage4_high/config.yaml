@@ -1,0 +1,59 @@
+stage: 4
+name: "stage4_high"
+description: "고등학교 단계: 비판적 사고, 논증, 복잡한 추론 (v1)"
+
+model:
+  vocab_size: 32000
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1024
+  max_seq_len: 1024        # 긴 문맥 (에세이, 논술)
+  dropout: 0.2
+  tie_weights: true
+  rope_base: 10000.0
+
+training:
+  learning_rate: 8.0e-5
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  warmup_steps: 400
+  batch_size: 2            # seq_len=1024로 메모리 부담 큼
+  gradient_accumulation_steps: 8   # effective batch = 16
+  max_steps: 10000
+  eval_interval: 1000
+  save_interval: 2000
+  log_interval: 100
+  device: "auto"
+  fp16: false
+  bf16: false
+
+data:
+  train_path: "data/processed/stage4/train_stage4.jsonl"
+  eval_path: "data/processed/stage4/eval_stage4.jsonl"
+  max_seq_len: 1024
+  mode: "clm"
+
+tokenizer:
+  path: "data/tokenizer/eureka.model"
+
+teacher:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  model: "gemma4:e4b"
+  score_responses: true   # 응답 채점으로 품질 필터링
+
+continual:
+  ewc_lambda: 1500.0
+  replay_ratio: 0.10
+
+graduation:
+  metric: "eval_ppl"
+  threshold: 8.0           # PPL ≤ 8
+  direction: "lower"
+
+paths:
+  checkpoint_dir: "checkpoints/stage4_high"
+  tokenizer_path: "data/tokenizer/eureka.model"

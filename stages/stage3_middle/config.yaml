@@ -1,0 +1,59 @@
+stage: 3
+name: "stage3_middle"
+description: "중학교 단계: 논리적 추론, Chain-of-Thought, 수학/과학 기초 (v1)"
+
+model:
+  vocab_size: 32000
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1024
+  max_seq_len: 512
+  dropout: 0.25          # 점진적 완화
+  tie_weights: true
+  rope_base: 10000.0
+
+training:
+  learning_rate: 1.0e-4   # 단계적으로 낮아짐
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  warmup_steps: 400
+  batch_size: 4
+  gradient_accumulation_steps: 8   # effective batch = 32
+  max_steps: 10000
+  eval_interval: 1000
+  save_interval: 2000
+  log_interval: 100
+  device: "auto"
+  fp16: false
+  bf16: false
+
+data:
+  train_path: "data/processed/stage3/train_stage3.jsonl"
+  eval_path: "data/processed/stage3/eval_stage3.jsonl"
+  max_seq_len: 512
+  mode: "clm"
+
+tokenizer:
+  path: "data/tokenizer/eureka.model"
+
+teacher:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  model: "gemma4:e4b"
+  cot_problems: 200       # Chain-of-Thought 문제 수
+
+continual:
+  ewc_lambda: 2000.0
+  replay_ratio: 0.10       # Stage 0~2 리플레이 10%
+
+graduation:
+  metric: "eval_ppl"
+  threshold: 10.0          # PPL ≤ 10
+  direction: "lower"
+
+paths:
+  checkpoint_dir: "checkpoints/stage3_middle"
+  tokenizer_path: "data/tokenizer/eureka.model"

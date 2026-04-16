@@ -11,13 +11,26 @@ import json
 import random
 import logging
 from pathlib import Path
+from datetime import datetime
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 
 from core.teacher.ollama_teacher import OllamaTeacher
 
-logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(levelname)s] %(message)s")
+# ── 로그 설정 (파일 + 콘솔 동시 출력) ──────────────────────────────────────
+Path("logs").mkdir(exist_ok=True)
+_ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+_log_file = f"logs/stage2_data_prep_{_ts}.log"
+_fmt = "%(asctime)s [%(levelname)s] %(message)s"
+_handlers = [
+    logging.StreamHandler(sys.stdout),
+    logging.FileHandler(_log_file, encoding="utf-8"),
+]
+for _h in _handlers:
+    _h.setFormatter(logging.Formatter(_fmt))
+logging.basicConfig(level=logging.INFO, handlers=_handlers)
 logger = logging.getLogger(__name__)
+logger.info(f"📄 데이터 준비 로그: {_log_file}")
 
 STAGE_DIR = Path("data/processed/stage2")
 TRAIN_FILE = STAGE_DIR / "train_stage2.jsonl"
@@ -97,48 +110,62 @@ def generate_seed_corpus(n_repeat: int = 10) -> list[dict]:
     return samples
 
 
-def generate_teacher_qa(n_articles: int = 200) -> list[dict]:
+def generate_teacher_qa(n_articles: int = 150, max_workers: int = 2) -> list[dict]:
     """
     Teacher(Ollama)로 Q&A 쌍 생성 — Stage 2의 핵심!
-    한국어 위키 지문에서 초등학교 수준 Q&A를 생성합니다.
+    ThreadPoolExecutor로 병렬 처리.
+    max_workers=2: Ollama 로컬 단일 모델 과부하 방지.
+    캐시된 응답은 즉시 반환 (OllamaTeacher 자동 처리).
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
     teacher = OllamaTeacher()
     if not teacher.is_available():
         logger.warning("⚠️  Ollama 미사용 — Teacher Q&A 스킵")
         return []
 
-    samples = []
     try:
         from datasets import load_dataset
-        logger.info(f"🤖 Teacher Q&A 생성 시작 (위키 {n_articles}개 문서)...")
+        logger.info(f"🤖 Teacher Q&A 병렬 생성 시작 (위키 {n_articles}개 문서, {max_workers}개 동시)...")
         ko_ds = load_dataset("wikimedia/wikipedia", "20231101.ko", split=f"train[:{n_articles}]")
-
-        for i, item in enumerate(ko_ds):
-            text = item.get("text", "").strip()[:600]  # 첫 600자만
-            if len(text) < 100:
-                continue
-
-            try:
-                pairs = teacher.generate_qa_pairs(passage=text, stage=2, n=3)
-                for pair in pairs:
-                    q = pair.get("question", "").strip()
-                    a = pair.get("answer", "").strip()
-                    if q and a and len(q) > 5:
-                        samples.append({
-                            "text": format_qa(q, a),
-                            "source": "teacher_qa",
-                            "stage": 2,
-                        })
-            except Exception as e:
-                logger.debug(f"  문서 {i} Q&A 실패: {e}")
-
-            if (i + 1) % 10 == 0:
-                logger.info(f"  진행: {i+1}/{n_articles} 문서, {len(samples)}건 생성")
-
+        texts = [
+            (i, item.get("text", "").strip()[:600])
+            for i, item in enumerate(ko_ds)
+            if len(item.get("text", "").strip()) >= 100
+        ]
     except Exception as e:
-        logger.warning(f"⚠️  Teacher Q&A 생성 실패: {e}")
+        logger.warning(f"⚠️  위키 데이터 로드 실패: {e}")
+        return []
 
-    logger.info(f"✅ Teacher Q&A: {len(samples):,}건")
+    samples = []
+    completed = 0
+
+    def process_one(args):
+        idx, text = args
+        try:
+            pairs = teacher.generate_qa_pairs(passage=text, stage=2, n=3)
+            results = []
+            for pair in pairs:
+                q = pair.get("question", "").strip()
+                a = pair.get("answer", "").strip()
+                if q and a and len(q) > 5:
+                    results.append({"text": format_qa(q, a), "source": "teacher_qa", "stage": 2})
+            return results
+        except Exception as e:
+            logger.debug(f"  문서 {idx} Q&A 실패: {e}")
+            return []
+
+    with ThreadPoolExecutor(max_workers=max_workers) as executor:
+        futures = {executor.submit(process_one, t): t[0] for t in texts}
+        for future in as_completed(futures):
+            completed += 1
+            results = future.result()
+            samples.extend(results)
+            if completed % 10 == 0:
+                cached = sum(1 for f in futures if f.done())
+                logger.info(f"  완료: {completed}/{len(texts)} 문서 | Q&A {len(samples)}건 생성")
+
+    logger.info(f"✅ Teacher Q&A: {len(samples):,}건 (병렬 {max_workers}개 처리)")
     return samples
 
 

@@ -58,7 +58,7 @@ class OllamaTeacher:
         self,
         model: str = "gemma4:e4b",
         base_url: str = "http://localhost:11434",
-        timeout: float = 120.0,
+        timeout: float = 240.0,
         cache_dir: Optional[str] = "data/teacher_cache",
         max_retries: int = 3,
     ):

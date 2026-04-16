@@ -1,0 +1,60 @@
+stage: 5
+name: "stage5_university"
+description: "대학교 단계: 전문 지식, 학술적 글쓰기, RLHF 보상 신호 (v1)"
+
+model:
+  vocab_size: 32000
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1024
+  max_seq_len: 1024
+  dropout: 0.15
+  tie_weights: true
+  rope_base: 10000.0
+
+training:
+  learning_rate: 5.0e-5
+  weight_decay: 0.05       # 낮은 weight decay (더 세밀한 학습)
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 0.5           # 부드러운 그래디언트 클리핑
+  warmup_steps: 300
+  batch_size: 2
+  gradient_accumulation_steps: 8
+  max_steps: 8000
+  eval_interval: 1000
+  save_interval: 2000
+  log_interval: 100
+  device: "auto"
+  fp16: false
+  bf16: false
+
+data:
+  train_path: "data/processed/stage5/train_stage5.jsonl"
+  eval_path: "data/processed/stage5/eval_stage5.jsonl"
+  max_seq_len: 1024
+  mode: "clm"
+
+tokenizer:
+  path: "data/tokenizer/eureka.model"
+
+teacher:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  model: "gemma4:e4b"
+  reward_scoring: true     # RLHF 보상 신호 생성
+  score_threshold: 0.7     # 0.7 이상만 학습 데이터로 사용
+
+continual:
+  ewc_lambda: 1000.0
+  replay_ratio: 0.08       # 이전 단계 리플레이 줄임 (전문화)
+
+graduation:
+  metric: "eval_ppl"
+  threshold: 6.0           # PPL ≤ 6
+  direction: "lower"
+
+paths:
+  checkpoint_dir: "checkpoints/stage5_university"
+  tokenizer_path: "data/tokenizer/eureka.model"

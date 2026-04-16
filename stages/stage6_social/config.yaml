@@ -1,0 +1,60 @@
+stage: 6
+name: "stage6_social"
+description: "사회인 단계: 자연스러운 대화, 코드, 복잡한 문제 해결, RLHF 선호 학습 (v1)"
+
+model:
+  vocab_size: 32000
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1024
+  max_seq_len: 2048        # 가장 긴 문맥
+  dropout: 0.1             # 최소한의 dropout (최대 성능)
+  tie_weights: true
+  rope_base: 10000.0
+
+training:
+  learning_rate: 3.0e-5    # 매우 낮은 LR (섬세한 fine-tuning)
+  weight_decay: 0.01
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 0.5
+  warmup_steps: 200
+  batch_size: 1            # seq_len=2048 MPS 한계
+  gradient_accumulation_steps: 16  # effective batch = 16
+  max_steps: 8000
+  eval_interval: 1000
+  save_interval: 2000
+  log_interval: 100
+  device: "auto"
+  fp16: false
+  bf16: false
+
+data:
+  train_path: "data/processed/stage6/train_stage6.jsonl"
+  eval_path: "data/processed/stage6/eval_stage6.jsonl"
+  max_seq_len: 2048
+  mode: "clm"
+
+tokenizer:
+  path: "data/tokenizer/eureka.model"
+
+teacher:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  model: "gemma4:e4b"
+  preference_pairs: true   # RLHF 선호 데이터 생성
+  dpo_training: false      # DPO는 추후 구현 예정
+
+continual:
+  ewc_lambda: 500.0        # 마지막 단계 — 새 학습에 집중
+  replay_ratio: 0.05
+
+graduation:
+  metric: "eval_ppl"
+  threshold: 5.0           # PPL ≤ 5 (최고 기준)
+  direction: "lower"
+
+paths:
+  checkpoint_dir: "checkpoints/stage6_social"
+  tokenizer_path: "data/tokenizer/eureka.model"
