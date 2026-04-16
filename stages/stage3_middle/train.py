@@ -59,7 +59,7 @@ def build_dataloaders(config, tokenizer):
     logger.info(f"Train: {len(train_ds):,}건, Eval: {len(eval_ds) if eval_ds else 0:,}건")
     return train_loader, eval_loader
 
-def main(config_path=None):
+def main(config_path=None, resume=False):
     logger.info("=" * 55)
     logger.info("   🔢 EurekaAI — Stage 3: Middle School Training")
     logger.info("=" * 55)
@@ -77,6 +77,50 @@ def main(config_path=None):
     progression = ProgressionManager()
     progression.start_stage(3)
     trainer = EurekaTrainer(model=model, config=config, train_dataloader=train_loader, eval_dataloader=eval_loader)
+    
+    if resume:
+        import re
+        ckpt_path = Path(f"checkpoints/stage3_middle/stage3_middle")
+        latest_step = -1
+        best_tag = None
+        if ckpt_path.exists():
+            for d in ckpt_path.iterdir():
+                if d.is_dir() and d.name.startswith("step_"):
+                    step_val = int(d.name.split("_")[1])
+                    if step_val > latest_step:
+                        latest_step = step_val
+                        best_tag = d.name
+        
+        if best_tag:
+            logger.info(f"🔄 Resume Requested: {best_tag} 부터 이어서 학습합니다.")
+            trainer.load_checkpoint(best_tag)
+        else:
+            logger.warning("⚠️  Resume가 요청되었으나 이어할 체크포인트가 없습니다. 처음부터 시작합니다.")
+
+
+    if not reset:
+        import re
+        stage_name_str = config.stage_names[config.current_stage] if hasattr(config, "stage_names") else "stage" + str(config.current_stage)
+        ckpt_path = Path(f"checkpoints/{stage_name_str}/{stage_name_str}")
+        latest_step = -1
+        best_tag = None
+        if ckpt_path.exists():
+            for d in ckpt_path.iterdir():
+                if d.is_dir() and d.name.startswith("step_"):
+                    try:
+                        step_val = int(d.name.split("_")[1])
+                        if step_val > latest_step:
+                            latest_step = step_val
+                            best_tag = d.name
+                    except: pass
+        if best_tag:
+            logger.info(f"🔄 [Resume] 기존 체크포인트 발견! '{best_tag}' 부터 이어서 학습합니다.")
+            trainer.load_checkpoint(best_tag)
+        else:
+            logger.info("ℹ️  [New Start] 이어할 체크포인트가 없습니다. 이전 Stage에서 전달받은 상태로 처음부터 시작합니다.")
+    else:
+        logger.info("🔄 [Reset] --reset 옵션 활성화됨. 기존 체크포인트를 무시하고 처음부터 새롭게 학습합니다.")
+
     metrics = trainer.train()
     best_loss = metrics.get("best_eval_loss", float("inf"))
     ppl = math.exp(min(best_loss, 20))
@@ -93,5 +137,7 @@ def main(config_path=None):
 if __name__ == "__main__":
     parser = argparse.ArgumentParser()
     parser.add_argument("--config", type=str, default=None)
+    parser.add_argument("--reset", action="store_true", help="이전 체크포인트를 무시하고 처음부터 다시 시작")
+    parser.add_argument("--resume", action="store_true", help="최신 체크포인트에서 학습 재개")
     args = parser.parse_args()
-    main(config_path=args.config)
+    main(config_path=args.config, resume=args.resume)

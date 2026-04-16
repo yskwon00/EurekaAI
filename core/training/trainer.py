@@ -157,7 +157,8 @@ class EurekaTrainer:
 
         self.optimizer.zero_grad(set_to_none=True)
 
-        for step in range(1, self.config.max_steps + 1):
+        start_step = int(self.global_step * grad_accum) + 1
+        for step in range(start_step, self.config.max_steps + 1):
             # ── Get batch ──────────────────────────────────────────────────────
             try:
                 batch = next(data_iter)
