@@ -235,13 +235,12 @@ class OllamaTeacher:
         Generate a step-by-step reasoning trace for a math/logic problem.
         Used for Chain-of-Thought distillation.
         """
-        system = (
-            f"You are a {STAGE_NAMES_KO[stage]} level teacher.\n"
-            "Show your reasoning step by step before giving the final answer.\n"
-            "Use both Korean and English naturally."
+        prompt = (
+            f"다음 문제를 풀이 과정(Chain-of-Thought)과 함께 자세히 설명해주세요.\n"
+            f"대상은 {STAGE_NAMES_KO[stage]}학생이며, 명확하고 친절한 어투로 작성해주세요.\n\n"
+            f"문제: {problem}"
         )
-        prompt = f"다음 문제를 단계별로 풀어주세요:\n\n{problem}"
-        resp = self.generate(prompt, system=system, temperature=0.3, max_tokens=512, stage=stage)
+        resp = self.generate(prompt, temperature=0.6, max_tokens=1024, stage=stage)
         return resp.content
 
     def score_response(
