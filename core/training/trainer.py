@@ -297,6 +297,20 @@ class EurekaTrainer:
 
         logger.info(f"💾 Checkpoint saved: {path}")
 
+        if self.wandb and tag in ["best", "final"]:
+            import wandb
+            stage_name = self.config.stage_names[self.config.current_stage]
+            art_name = f"model-{stage_name}"
+            # Only log artifact during these specific milestones
+            artifact = wandb.Artifact(
+                name=art_name, 
+                type="model",
+                description=f"EurekaAI {stage_name} {tag} checkpoint"
+            )
+            artifact.add_dir(str(path))
+            self.wandb.log_artifact(artifact, aliases=[tag, f"step_{self.global_step}"])
+            logger.info(f"🌐 W&B Artifact uploaded: {art_name} ({tag})")
+
     def load_checkpoint(self, tag: str = "latest"):
         path = self.ckpt_dir / tag
         if not path.exists():

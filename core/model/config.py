@@ -73,8 +73,8 @@ class EurekaConfig:
     ])
 
     # ── Logging ─────────────────────────────────────────────────────────────
-    use_wandb: bool = False
-    wandb_project: str = "EurekaAI"
+    use_wandb: bool = True
+    wandb_project: str = "EurekaAI-Curriculum"
     run_name: Optional[str] = None
 
     def __post_init__(self):
