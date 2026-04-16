@@ -1,0 +1,59 @@
+stage: 2
+name: "stage2_elementary"
+description: "초등학교 단계: 기초 지식, Q&A 학습, Teacher 활용 (v1)"
+
+model:
+  vocab_size: 32000
+  hidden_size: 512
+  num_layers: 6
+  num_heads: 8
+  intermediate_size: 1024
+  max_seq_len: 512        # Stage 2: 더 긴 문맥
+  dropout: 0.3            # 점차 낮아짐 (0.35 → 0.3)
+  tie_weights: true
+  rope_base: 10000.0
+
+training:
+  learning_rate: 1.5e-4   # 이전 단계보다 낮은 LR (fine-tuning)
+  weight_decay: 0.1
+  beta1: 0.9
+  beta2: 0.95
+  grad_clip: 1.0
+  warmup_steps: 500
+  batch_size: 4            # max_seq_len=512로 메모리 부담 큼
+  gradient_accumulation_steps: 8  # effective batch = 32
+  max_steps: 10000
+  eval_interval: 1000
+  save_interval: 2000
+  log_interval: 100
+  device: "auto"
+  fp16: false
+  bf16: false
+
+data:
+  train_path: "data/processed/stage2/train_stage2.jsonl"
+  eval_path: "data/processed/stage2/eval_stage2.jsonl"
+  max_seq_len: 512
+  mode: "clm"
+
+tokenizer:
+  path: "data/tokenizer/eureka.model"
+
+teacher:
+  enabled: true
+  ollama_url: "http://localhost:11434"
+  model: "gemma4:e4b"
+  qa_pairs_per_article: 3   # 문서당 Q&A 쌍 수
+
+continual:
+  ewc_lambda: 3000.0
+  replay_ratio: 0.15        # Stage 0+1 데이터 15% 리플레이
+
+graduation:
+  metric: "eval_ppl"
+  threshold: 15.0           # PPL ≤ 15 (더 어려운 기준)
+  direction: "lower"
+
+paths:
+  checkpoint_dir: "checkpoints/stage2_elementary"
+  tokenizer_path: "data/tokenizer/eureka.model"
