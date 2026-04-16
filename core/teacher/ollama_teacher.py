@@ -207,18 +207,17 @@ class OllamaTeacher:
             List of {"question": str, "answer": str, "stage": int}
         """
         stage_ctx = STAGE_CONTEXTS.get(stage, STAGE_CONTEXTS[2])
-        system = (
-            f"You are an educational AI creating {STAGE_NAMES_KO[stage]} level Q&A pairs.\n"
-            f"Level: {stage_ctx}\n"
-            "Always respond in valid JSON array format."
-        )
         prompt = (
-            f"다음 지문을 읽고 {n}개의 Q&A 쌍을 만들어주세요.\n"
+            f"You are an educational AI creating {STAGE_NAMES_KO[stage]} level Q&A pairs.\n"
+            f"Level: {stage_ctx}\n\n"
+            f"다음 지문을 읽고 {n}개의 Q&A 쌍을 만들어주세요. 반드시 아래 형식의 JSON 배열(Array)로만 출력해야 합니다. 다른 사족은 절대 붙이지 마세요.\n"
             f"지문: {passage[:800]}\n\n"
-            f"JSON 형식으로 반환: [{{'question': '...', 'answer': '...'}}]"
+            f"출력 예시:\n"
+            f"[\n  {{\"question\": \"질문 내용\", \"answer\": \"답변 내용\"}}\n]\n\n"
+            f"JSON 결괏값:"
         )
 
-        resp = self.generate(prompt, system=system, temperature=0.6, max_tokens=1024, stage=stage)
+        resp = self.generate(prompt, temperature=0.6, max_tokens=2048, stage=stage)
         try:
             # Extract JSON from response
             text = resp.content

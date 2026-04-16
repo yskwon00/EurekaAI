@@ -107,8 +107,13 @@ def generate_essays(max_workers: int = 2) -> list[dict]:
         topic, stage = args
         try:
             from core.teacher.ollama_teacher import STAGE_CONTEXTS, STAGE_NAMES_KO
-            system = f"You are a {STAGE_NAMES_KO[stage]} level student. Write a well-structured essay.\nLevel: {STAGE_CONTEXTS[stage]}"
-            resp = teacher.generate(topic, system=system, temperature=0.7, max_tokens=600)
+            prompt = (
+                f"다음 주제에 대해 정교하고 논리적인 에세이를 작성해 주세요.\n"
+                f"대상: {STAGE_NAMES_KO[stage]}학생\n"
+                f"수준 및 컨텍스트: {STAGE_CONTEXTS[stage]}\n\n"
+                f"주제: {topic}"
+            )
+            resp = teacher.generate(prompt, temperature=0.7, max_tokens=1024, stage=stage)
             if resp and len(resp.content) > 100:
                 return {"text": f"주제: {topic}\n\n{resp.content}", "source": "teacher_essay", "stage": 4}
         except Exception: pass
