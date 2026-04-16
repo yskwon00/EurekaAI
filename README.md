@@ -114,86 +114,220 @@ EurekaAI/
 │   └── evaluation/
 │       └── benchmarks.py       # 단계별 벤치마크
 │
-├── stages/
-│   ├── stage0_newborn/         # 🍼 신생아
-│   │   ├── config.yaml
-│   │   ├── data_prep.py
-│   │   └── train.py
-│   ├── stage1_toddler/         # 🧸 유아
-│   ├── stage2_elementary/      # 📚 초등
-│   ├── stage3_middle/          # 🔢 중등
-│   ├── stage4_high/            # 📐 고등
-│   ├── stage5_university/      # 🎓 대학
-│   └── stage6_social/          # 🌐 사회인
-│
-├── data/
-│   ├── tokenizer/              # 토크나이저 모델
-│   ├── raw/                    # 원본 데이터
-│   └── processed/              # 전처리 완료 (.jsonl)
-│       ├── stage0/
-│       ├── stage1/
-│       └── ...
-│
-├── checkpoints/                # 단계별 체크포인트
-├── scripts/
-│   ├── setup_tokenizer.py      # 토크나이저 초기 설정
-│   └── run_all_stages.sh       # 전체 파이프라인 실행
-│
-├── run.py                      # 메인 진입점
-├── docker-compose.yml
-├── Dockerfile
-└── requirements.txt
+├── s## 📊 단계별 커리큘럼
+
+| Stage | 이름 | 학습 목표 | Teacher 역할 | 졸업 기준 |
+|-------|------|-----------|-------------|---------|
+| 0 | 🍼 신생아 | 문자·패턴 학습 | ❌ 미사용 | PPL ≤ 30 |
+| 1 | 🧸 유아기 | 단어·기초 문장 | ❌ 미사용 | PPL ≤ 20 |
+| 2 | 📚 초등학교 | 문법·기초 지식 | **Q&A 쌍 생성** | PPL ≤ 15 |
+| 3 | 🔢 중학교 | 논리·추론 | **Chain-of-Thought 풀이** | PPL ≤ 10 |
+| 4 | 📐 고등학교 | 비판적 사고 | **채점 필터링** (≥0.6) | PPL ≤ 8 |
+| 5 | 🎓 대학교 | 전문 지식 | **고품질 필터** (≥0.7) | PPL ≤ 6 |
+| 6 | 🌐 사회인 | 통합 지능 | **RLHF 선호 쌍** | PPL ≤ 5 |
+
+---
+
+## 🗂️ 단계별 데이터 생성 상세
+
+### Stage 0~1 (신생아·유아기) — Teacher 미사용
+
+```
+[신생아] Seed 텍스트(단어·모음·숫자) × 20회 반복
+         + TinyStories 한국어 번역본
+         + Korean Wikipedia (5단어 이하 문장)
+         총 ~120,000건 | max_seq_len: 128
+
+[유아기]  Seed 문장(일상표현 한영) × 10회
+         + TinyStories 원본 (동화책 스타일)      78%
+         + Korean Wikipedia (중간 난이도 문장)   17%
+         + Stage 0 Replay (망각 방지)            5%
+         총 ~70,000건 | max_seq_len: 256
 ```
 
 ---
 
-## 📊 단계별 커리큘럼
+### Stage 2 (초등학교) — Teacher Q&A 생성 시작
 
-| Stage | 이름 | 학습 목표 | 데이터 | 예상 시간 | 졸업 기준 |
-|-------|------|-----------|--------|-----------|-----------|
-| 0 | 🍼 신생아 | 문자·패턴 학습 | ~1MB | ~30분 | PPL < 30 |
-| 1 | 🧸 유아 | 단어·기초 문장 | ~10MB | ~30분 | Accuracy > 50% |
-| 2 | 📚 초등 | 문법·기초 지식 | ~50MB | ~1시간 | F1 > 60% |
-| 3 | 🔢 중학교 | 논리·추론 | ~100MB | ~2시간 | F1 > 65% |
-| 4 | 📐 고등 | 비판적 사고 | ~200MB | ~2시간 | Acc > 45% |
-| 5 | 🎓 대학 | 전문 지식 | ~500MB | ~3시간 | Acc > 40% |
-| 6 | 🌐 사회인 | 통합 지능 | ~1GB | ~4시간 | Score > 4.0 |
+```
+목표: 기초 지식을 질문-답변 형식으로 학습
+
+[Teacher 역할]
+  1. 한국어 Wikipedia 150개 문서 로드
+  2. 각 문서 → Ollama에게 초등 수준 Q&A 3쌍 생성 요청
+  3. JSON 파싱 → 저장 (캐시: data/teacher_cache/)
+
+생성 형식:
+  Q: 광합성이란 무엇인가요?
+  A: 식물이 햇빛, 물, 이산화탄소로 음식을 만드는 과정이에요.
+
+데이터 구성 (~70,000건):
+  TinyStories (영문 기초)       78%
+  Korean Wikipedia 문장         17%
+  Stage 0+1 Replay              5%
+  Teacher Q&A + Synthetic       <1% (캐시 활용)
+
+속도 최적화:
+  - ThreadPoolExecutor(max_workers=2) 병렬 처리
+  - OllamaTeacher 캐시 (MD5 해시 기반) — 재실행 시 즉시 반환
+  - timeout=240초 (로컬 Ollama 과부하 방지)
+```
+
+---
+
+### Stage 3 (중학교) — Chain-of-Thought 핵심 ⭐
+
+```
+목표: 단계적 논리 추론 능력 학습
+
+[Teacher 역할: get_chain_of_thought()]
+  수학 문제 (10개):
+    - "2x + 5 = 13일 때 x를 구하세요."
+    - "삼각형의 넓이 계산 (밑변 6, 높이 4)"
+    - "1부터 100까지의 합"
+    - "원의 둘레 (반지름 7cm)" 등
+
+  과학 문제 (8개):
+    - "광합성 과정을 단계별로 설명해주세요."
+    - "뉴턴의 운동 법칙 3가지"
+    - "물의 상태 변화" 등
+
+  논리 문제 (5개): (영문)
+    - "All cats are animals... Do cats breathe? Explain."
+    - "3L/5L 저그로 4L 측정하기"
+    - 수열 패턴 추론 등
+
+  → 각 문제당 Teacher가 단계별 풀이(CoT) 생성
+  → 문제당 8회 반복 = ~184 × 8 = 1,472개 CoT 샘플
+  → ThreadPoolExecutor(max_workers=2) 병렬 처리
+
+생성 형식:
+  문제: 2x + 5 = 13일 때 x를 구하세요.
+  
+  풀이:
+  1단계: 식의 양변에서 5를 빼면 2x = 8이 됩니다.
+  2단계: 양변을 2로 나누면 x = 4가 됩니다.
+  3단계: 검증: 2(4) + 5 = 13 ✓
+
+데이터 구성:
+  Teacher CoT 풀이               ~30%
+  Korean Wikipedia 단락 (80~400자) ~50%
+  Stage 0~2 Replay (10%)        ~15%
+  Ollama 합성 데이터              ~5%
+
+max_seq_len: 512
+```
+
+---
+
+### Stage 4 (고등학교) — 품질 채점 필터링 ⭐
+
+```
+목표: 비판적 사고 + 고품질 데이터로만 학습
+
+[Teacher 역할 1: generate_qa_pairs() + score_response()]
+  1. Wikipedia 100개 문서 → 고등 수준 Q&A 3쌍 생성
+  2. 생성된 각 답변을 score_response()로 채점 (0.0~1.0)
+  3. 점수 ≥ 0.6인 답변만 학습 데이터로 채택 ← 품질 필터!
+
+  예시:
+    Q: 민주주의의 한계는 무엇인가요?
+    A: (Teacher 채점 0.8 → 채택)
+    A: (Teacher 채점 0.4 → 제외)
+
+[Teacher 역할 2: 에세이 생성]
+  한국어 주제 (8개):
+    - "환경 보호를 위해 우리가 할 수 있는 일들을 논술하세요."
+    - "인터넷이 사회에 미치는 긍정적, 부정적 영향을 분석하세요."
+    - "청소년 스마트폰 과사용 문제와 해결 방안" 등
+
+  영어 주제 (7개):
+    - "Discuss the impact of social media on modern communication."
+    - "Should school uniforms be mandatory? Argue both sides." 등
+
+  → 각 주제 × 5회 반복 = 75개 에세이 생성
+  → Teacher가 고등학생 수준으로 작성
+
+생성 형식 (에세이):
+  주제: 환경 보호를 위해 우리가 할 수 있는 일들을 논술하세요.
+  
+  환경 보호는 현대 사회에서 가장 중요한 과제 중 하나입니다.
+  첫째, 일상에서 에너지 절약을 실천할 수 있습니다...
+
+데이터 구성:
+  채점 Q&A (score ≥ 0.6)         ~20%
+  Teacher 에세이                  ~15%
+  Korean Wikipedia 단락 (100~600자) ~45%
+  Stage 0~3 Replay (10%)         ~20%
+
+max_seq_len: 1024
+```
+
+---
+
+### Stage 5~6 (대학교·사회인) — RLHF 적용
+
+```
+[Stage 5 대학교]
+  - 학술 Q&A + score_response() ≥ 0.7 고품질 필터링
+  - Wikipedia 학술 단락 (150~800자)
+  - 이전 단계 리플레이 8%
+  - max_seq_len: 1024
+
+[Stage 6 사회인]
+  - create_preference_pairs(): 두 답변 생성 → Teacher가 더 나은 것 선택 (RLHF)
+  - 대화 형식 데이터 (User/Assistant)
+  - 코드 예제 (Python 패턴, 알고리즘)
+  - max_seq_len: 2048
+```
 
 ---
 
 ## 🤖 Ollama Teacher 활용
 
-| Stage | Teacher 역할 |
-|-------|-------------|
-| 0~1 | 유아어·동화 스타일 synthetic 데이터 생성 |
-| 2~3 | QA Pair 생성, Chain-of-Thought 풀이 증류 |
-| 4~5 | 논술 피드백(보상 신호), 전문 QA 생성 |
-| 6 | A/B Preference 판별 → RLHF-lite |
-
 ```python
-# 직접 사용 예시
 from core.teacher.ollama_teacher import OllamaTeacher
 
-teacher = OllamaTeacher(model="llama3.2:3b")
-qa_pairs = teacher.generate_qa_pairs("태양은 지구에서 약 1억 5천만 km 떨어져 있습니다.", stage=2)
-cot = teacher.get_chain_of_thought("x² - 5x + 6 = 0을 풀어라", stage=3)
-score = teacher.score_response("수도는?", "서울입니다.", stage=2)
+teacher = OllamaTeacher(model="gemma4:e4b", timeout=240.0)
+
+# Stage 2: Q&A 쌍 생성
+qa_pairs = teacher.generate_qa_pairs(passage="광합성은...", stage=2, n=3)
+
+# Stage 3: Chain-of-Thought 단계별 풀이
+cot = teacher.get_chain_of_thought("2x + 5 = 13을 풀어라", stage=3)
+
+# Stage 4~5: 답변 품질 채점 (0.0~1.0)
+score = teacher.score_response(question="민주주의란?", answer="...", stage=4)
+
+# Stage 6: 선호 쌍 생성 (RLHF)
+pref = teacher.create_preference_pairs(question="AI란?", answer_a="...", answer_b="...", stage=6)
+# → {"chosen": "...", "rejected": "...", "reason": "..."}
 ```
+
+> **캐시**: 모든 Teacher 응답은 `data/teacher_cache/`에 MD5 해시로 캐시됨.
+> 재실행 시 즉시 반환되어 중단 후 재시작 비용 최소화.
 
 ---
 
-## ☁️ Cloud 이전 (Mac → GCP/AWS)
+## 📈 Continual Learning 전략
 
-```bash
-# Mac에서 동일하게 실행됨 (DEVICE=auto)
-# Cloud에서는 CUDA 자동 감지
-DEVICE=cuda python run.py --stage 0
+```
+Stage N 완료  →  Fisher Matrix 계산 (EWC)
+                  ↓
+Stage N 데이터 일부 → Replay Buffer 저장
+                  ↓
+Stage N+1 학습  →  Task Loss + EWC Penalty + Replay Data
 
-# Docker로 완전 이식
-docker-compose up trainer
+EWC λ 감소 추이:
+  Stage 1: λ=5000 (Stage 0 지식 강하게 보존)
+  Stage 2: λ=3000
+  Stage 3: λ=2000
+  Stage 4: λ=1500
+  Stage 5: λ=1000
+  Stage 6: λ=500  (새 학습에 집중)
 
-# 더 큰 모델로 확장
-# config.py의 small_config() 또는 medium_config() 사용
+Replay 비율:
+  Stage 1~2: 15~20%  Stage 3~4: 10%  Stage 5~6: 5~8%
 ```
 
 ---
@@ -205,27 +339,26 @@ python run.py --status
 ```
 
 ```
-══════════════════════════════════════════════════════════
+============================================================
    EurekaAI — Curriculum Progress
-══════════════════════════════════════════════════════════
-  🎓 Stage 0: 🍼 신생아 (Newborn)          [graduated]  PPL=24.3
-  ✅ Stage 1: 🧸 유아기 (Toddler)           [completed]
-  🔄 Stage 2: 📚 초등학교 (Elementary)      [training]
-  ⏳ Stage 3: 🔢 중학교 (Middle School)     [pending]
+============================================================
+  ✅ Stage 0: 🍼 신생아 (Newborn)                [completed]
+      best_metric=1.0795, steps=12000
+  ✅ Stage 1: 🧸 유아기 (Toddler)                [completed]
+      best_metric=1.1000, steps=2200
+  🔄 Stage 2: 📚 초등학교 (Elementary)            [training]
+  ⏳ Stage 3: 🔢 중학교 (Middle School)          [pending]
   ...
-══════════════════════════════════════════════════════════
+============================================================
 ```
 
----
+**로그 실시간 확인:**
+```bash
+# 학습 로그
+tail -f logs/stage2_elementary_*.log | grep -E "Step|Eval"
 
-## 📈 Continual Learning 전략
-
-```
-Stage N 완료  →  Fisher Matrix 계산 (EWC)
-                  ↓
-Stage N 데이터 일부 → Replay Buffer 저장
-                  ↓
-Stage N+1 학습  →  Task Loss + EWC Penalty + Replay Data (20%)
+# 데이터 준비 로그
+tail -f logs/stage2_data_prep_*.log | grep -E "완료|✅|저장"
 ```
 
 ---
@@ -233,27 +366,23 @@ Stage N+1 학습  →  Task Loss + EWC Penalty + Replay Data (20%)
 ## 🛠 개발 가이드
 
 ```bash
-# 특정 stage 평가만
-python run.py --eval --stage 0
+# 특정 stage 학습
+python stages/stage2_elementary/train.py
 
-[예시]
-cd (~/MyWorkspace)/EurekaAI
-nohup .venv/bin/python3 stages/stage0_newborn/train.py > /dev/null 2>&1 &  # 백그라운드 재시작
-tail -f logs/stage0_newborn_*.log  # 실시간 로그 확인
+# 데이터만 준비
+python stages/stage3_middle/data_prep.py
 
-# 커스텀 설정으로 학습
-python run.py --stage 0 --config stages/stage0_newborn/config.yaml
+# 백그라운드 학습
+nohup .venv/bin/python3 stages/stage2_elementary/train.py > /dev/null 2>&1 &
 
-# 테스트
-pytest tests/ -v
+# 학습 진행 확인
+tail -f logs/stage2_elementary_*.log
+
+# Eval PPL만 확인
+grep "📊 Eval" logs/stage2_elementary_*.log
 ```
 
 ---
 
-## 📄 라이선스
-
-MIT License — 자유롭게 사용, 수정, 배포 가능합니다.
-
----
-
 *"유레카! 모든 지식은 스스로 발견될 때 가장 빛난다."* ✨
+
