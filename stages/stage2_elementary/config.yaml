@@ -8,7 +8,7 @@ model:
   num_layers: 6
   num_heads: 8
   intermediate_size: 1024
-  max_seq_len: 512        # Stage 2: 더 긴 문맥
+  max_seq_len: 256        # MPS 속도 최적화 (512→256)
   dropout: 0.3            # 점차 낮아짐 (0.35 → 0.3)
   tie_weights: true
   rope_base: 10000.0
@@ -20,12 +20,12 @@ training:
   beta2: 0.95
   grad_clip: 1.0
   warmup_steps: 500
-  batch_size: 4            # max_seq_len=512로 메모리 부담 큼
-  gradient_accumulation_steps: 8  # effective batch = 32
-  max_steps: 10000
-  eval_interval: 1000
-  save_interval: 2000
-  log_interval: 100
+  batch_size: 8            # MPS 최적화 (seq_len=256)
+  gradient_accumulation_steps: 4  # effective batch = 32
+  max_steps: 5000           # 데이터 18K건 기준 충분
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 50          # 더 자주 확인
   device: "auto"
   fp16: false
   bf16: false
@@ -33,7 +33,7 @@ training:
 data:
   train_path: "data/processed/stage2/train_stage2.jsonl"
   eval_path: "data/processed/stage2/eval_stage2.jsonl"
-  max_seq_len: 512
+  max_seq_len: 256
   mode: "clm"
 
 tokenizer:

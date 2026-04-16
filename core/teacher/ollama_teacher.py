@@ -103,18 +103,29 @@ class OllamaTeacher:
     def _cache_key(self, prompt: str) -> str:
         return hashlib.md5(f"{self.model}:{prompt}".encode()).hexdigest()
 
-    def _load_cache(self, key: str) -> Optional[str]:
+    def _load_cache(self, key: str, stage: Optional[int] = None) -> Optional[str]:
         if not self.cache_dir:
             return None
-        path = self.cache_dir / f"{key}.json"
+        
+        base_path = self.cache_dir
+        if stage is not None:
+            base_path = base_path / f"stage_{stage}"
+            
+        path = base_path / f"{key}.json"
         if path.exists():
             return json.loads(path.read_text())["response"]
         return None
 
-    def _save_cache(self, key: str, response: str):
+    def _save_cache(self, key: str, response: str, stage: Optional[int] = None):
         if not self.cache_dir:
             return
-        path = self.cache_dir / f"{key}.json"
+        
+        base_path = self.cache_dir
+        if stage is not None:
+            base_path = base_path / f"stage_{stage}"
+            base_path.mkdir(parents=True, exist_ok=True)
+            
+        path = base_path / f"{key}.json"
         path.write_text(json.dumps({"response": response}, ensure_ascii=False))
 
     def generate(
@@ -124,13 +135,14 @@ class OllamaTeacher:
         temperature: float = 0.7,
         max_tokens: int = 512,
         use_cache: bool = True,
+        stage: Optional[int] = None,
     ) -> TeacherResponse:
         """Send a prompt to Ollama and return the response."""
         cache_key = self._cache_key(prompt + (system or ""))
 
         # Try cache first
         if use_cache:
-            cached = self._load_cache(cache_key)
+            cached = self._load_cache(cache_key, stage=stage)
             if cached:
                 return TeacherResponse(cached, self.model, 0.0, cached=True)
 
@@ -170,7 +182,7 @@ class OllamaTeacher:
                     latency = (time.time() - t0) * 1000
 
                 if use_cache:
-                    self._save_cache(cache_key, content)
+                    self._save_cache(cache_key, content, stage=stage)
 
                 return TeacherResponse(content, self.model, latency)
 
@@ -206,7 +218,7 @@ class OllamaTeacher:
             f"JSON 형식으로 반환: [{{'question': '...', 'answer': '...'}}]"
         )
 
-        resp = self.generate(prompt, system=system, temperature=0.6, max_tokens=1024)
+        resp = self.generate(prompt, system=system, temperature=0.6, max_tokens=1024, stage=stage)
         try:
             # Extract JSON from response
             text = resp.content
@@ -229,7 +241,7 @@ class OllamaTeacher:
             "Use both Korean and English naturally."
         )
         prompt = f"다음 문제를 단계별로 풀어주세요:\n\n{problem}"
-        resp = self.generate(prompt, system=system, temperature=0.3, max_tokens=512)
+        resp = self.generate(prompt, system=system, temperature=0.3, max_tokens=512, stage=stage)
         return resp.content
 
     def score_response(
@@ -305,7 +317,7 @@ class OllamaTeacher:
 
             try:
                 resp = self.generate(
-                    prompt, system=system, temperature=0.8, max_tokens=2048
+                    prompt, system=system, temperature=0.8, max_tokens=2048, stage=stage
                 )
                 text = resp.content
                 start = text.find("[")
@@ -349,7 +361,7 @@ class OllamaTeacher:
             "어느 답변이 더 나은가요?"
         )
 
-        resp = self.generate(prompt, system=system, temperature=0.2, max_tokens=256, use_cache=False)
+        resp = self.generate(prompt, system=system, temperature=0.2, max_tokens=256, use_cache=False, stage=stage)
         try:
             text = resp.content
             start = text.find("{")
