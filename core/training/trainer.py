@@ -117,12 +117,31 @@ class EurekaTrainer:
         try:
             import wandb
             stage_name = self.config.stage_names[self.config.current_stage]
+            stage_idx = self.config.current_stage
+            short_stage = f"stage{stage_idx}"
+
             self.wandb = wandb.init(
                 project=self.config.wandb_project,
                 name=self.config.run_name or stage_name,
                 config=vars(self.config),
                 resume="allow",
             )
+            
+            # ── [Lineage] 자동으로 Input 연결 ──
+            try:
+                self.wandb.use_artifact(f"dataset-{short_stage}:latest")
+                logger.info(f"🔗 [W&B Lineage] connected dataset: dataset-{short_stage}")
+            except Exception as e:
+                logger.warning(f"Failed to connect dataset artifact: {e}")
+                
+            if stage_idx > 0:
+                prev_stage = f"stage{stage_idx - 1}"
+                try:
+                    self.wandb.use_artifact(f"model-{prev_stage}:latest")
+                    logger.info(f"🔗 [W&B Lineage] connected previous model: model-{prev_stage}")
+                except Exception as e:
+                    logger.warning(f"Failed to connect previous model artifact: {e}")
+                    
         except ImportError:
             logger.warning("wandb not installed. Skipping W&B logging.")
 
@@ -299,8 +318,14 @@ class EurekaTrainer:
 
         if self.wandb and tag in ["best", "final"]:
             import wandb
-            stage_name = self.config.stage_names[self.config.current_stage]
-            art_name = f"model-{stage_name}"
+            stage_idx = self.config.current_stage
+            art_name = f"model-stage{stage_idx}"
+            
+            # 더미 파일을 통해 해시 강제 변형 및 버전 안전 생성 보장
+            import time
+            dummy_file = path / "dummy_lineage.txt"
+            with open(dummy_file, "w") as f:
+                f.write(f"Lineage Hash Force: {time.time()}")
             # Only log artifact during these specific milestones
             artifact = wandb.Artifact(
                 name=art_name, 
