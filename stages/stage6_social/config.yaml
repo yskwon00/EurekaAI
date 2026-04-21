@@ -1,60 +1,52 @@
 stage: 6
-name: "stage6_social"
-description: "사회인 단계: 자연스러운 대화, 코드, 복잡한 문제 해결, RLHF 선호 학습 (v2)"
-
+name: stage6_social
+description: 사회인 단계 (120M 업그레이드)
 model:
   vocab_size: 32000
-  hidden_size: 512
-  num_layers: 6
-  num_heads: 8
-  intermediate_size: 1024
-  max_seq_len: 1024          # 데이터 평균 445자에 맞춤 (2048→1024)
-  dropout: 0.20              # 과적합 방지 (0.1→0.2, Stage5 교훈)
+  hidden_size: 768
+  num_layers: 12
+  num_heads: 12
+  intermediate_size: 3072
   tie_weights: true
   rope_base: 10000.0
-
+  max_seq_len: 1024
+  dropout: 0.1
 training:
-  learning_rate: 2.0e-5      # Stage5 교훈: 5e-5는 과적합 유발
-  weight_decay: 0.10         # 과적합 억제 강화 (0.01→0.10)
+  learning_rate: 2.0e-05
+  weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
-  grad_clip: 0.5
-  warmup_steps: 100
+  grad_clip: 1.0
+  warmup_steps: 200
   batch_size: 2
-  gradient_accumulation_steps: 8   # effective batch = 16
-  max_steps: 3000            # Stage5 교훈: 1000스텝에 수렴 확인됨
-  eval_interval: 200         # 과적합 조기 감지 (1000→200)
-  save_interval: 500
-  log_interval: 50
-  device: "auto"
+  gradient_accumulation_steps: 8
+  max_steps: 5000
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 100
+  device: auto
   fp16: false
   bf16: false
-
 data:
-  train_path: "data/processed/stage6/train_stage6.jsonl"
-  eval_path: "data/processed/stage6/eval_stage6.jsonl"
+  train_path: data/processed/stage6_social/train_stage6_social.jsonl
+  eval_path: data/processed/stage6_social/eval_stage6_social.jsonl
   max_seq_len: 1024
-  mode: "clm"
-
+  mode: clm
+  target_samples: 80,000건 대화+코드+위키
 tokenizer:
-  path: "data/tokenizer/eureka.model"
-
+  path: data/tokenizer/eureka.model
 teacher:
   enabled: true
-  ollama_url: "http://localhost:11434"
-  model: "gemma4:e4b"
-  preference_pairs: true
-  dpo_training: false
-
+  ollama_url: http://localhost:11434
+  model: gemma4:e4b
+  score_threshold: 0.7
 continual:
-  ewc_lambda: 500.0
-  replay_ratio: 0.05
-
+  ewc_lambda: 1000.0
+  replay_ratio: 0.08
 graduation:
-  metric: "eval_ppl"
-  threshold: 20.0            # 현실적 목표 (5.0→20.0, Stage5 교훈)
-  direction: "lower"
-
+  metric: eval_ppl
+  threshold: 20.0
+  direction: lower
 paths:
-  checkpoint_dir: "checkpoints/stage6_social"
-  tokenizer_path: "data/tokenizer/eureka.model"
+  checkpoint_dir: checkpoints/stage6_social
+  tokenizer_path: data/tokenizer/eureka.model

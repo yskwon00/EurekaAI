@@ -1,63 +1,52 @@
 stage: 0
-name: "stage0_newborn"
-description: "신생아 단계: 문자와 기초 패턴 학습 (v2 — 5 epochs)"
-
+name: stage0_newborn
+description: 신생아 단계 (120M 업그레이드)
 model:
   vocab_size: 32000
-  hidden_size: 512
-  num_layers: 6
-  num_heads: 8
-  intermediate_size: 1024
-  max_seq_len: 128        # Stage 0: very short context
-  dropout: 0.35           # 과적합 방지를 위해 높임 (0.2 → 0.35)
+  hidden_size: 768
+  num_layers: 12
+  num_heads: 12
+  intermediate_size: 3072
   tie_weights: true
   rope_base: 10000.0
-
+  max_seq_len: 512
+  dropout: 0.15
 training:
-  learning_rate: 3.0e-4
+  learning_rate: 0.0003
   weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
   grad_clip: 1.0
-  warmup_steps: 500
-  batch_size: 16              # MPS 메모리 제한으로 축소 (실효 배치=64)
-  gradient_accumulation_steps: 4  # effective batch = 16 * 4 = 64
-  max_steps: 12000         # ~5 epochs (151K / 16 = 9443 batches/epoch)
-  eval_interval: 1000
-  save_interval: 2000
+  warmup_steps: 200
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  max_steps: 5000
+  eval_interval: 500
+  save_interval: 1000
   log_interval: 100
-  device: "auto"           # mps > cuda > cpu
+  device: auto
   fp16: false
   bf16: false
-
 data:
-  train_path: "data/processed/stage0/train_stage0.jsonl"
-  eval_path: "data/processed/stage0/eval_stage0.jsonl"
-  max_seq_len: 128
-  mode: "clm"              # Causal Language Modeling
-
+  train_path: data/processed/stage0_newborn/train_stage0_newborn.jsonl
+  eval_path: data/processed/stage0_newborn/eval_stage0_newborn.jsonl
+  max_seq_len: 512
+  mode: clm
+  target_samples: 30,000건 TinyStories+동화
 tokenizer:
-  path: "data/tokenizer/eureka.model"
-
+  path: data/tokenizer/eureka.model
 teacher:
   enabled: true
-  ollama_url: "http://localhost:11434"
-  model: "gemma4:e4b"
-  synthetic_ratio: 0.3
-
+  ollama_url: http://localhost:11434
+  model: gemma4:e4b
+  score_threshold: 0.7
 continual:
-  ewc_lambda: 0.0          # No EWC for Stage 0 (first stage)
-  replay_ratio: 0.0        # No replay for Stage 0
-
+  ewc_lambda: 5000.0
+  replay_ratio: 0.15
 graduation:
-  metric: "ppl"
-  threshold: 30.0
-  direction: "lower"
-
+  metric: eval_ppl
+  threshold: 20.0
+  direction: lower
 paths:
-  checkpoint_dir: "checkpoints/stage0_newborn"
-  tokenizer_path: "data/tokenizer/eureka.model"
-
-logging:
-  use_wandb: false
-  log_interval: 20
+  checkpoint_dir: checkpoints/stage0_newborn
+  tokenizer_path: data/tokenizer/eureka.model

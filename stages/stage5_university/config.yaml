@@ -1,60 +1,52 @@
 stage: 5
-name: "stage5_university"
-description: "대학교 단계: 전문 지식, 학술적 글쓰기, RLHF 보상 신호 (v2 — 재학습)"
-
+name: stage5_university
+description: 대학교 단계 (120M 업그레이드)
 model:
   vocab_size: 32000
-  hidden_size: 512
-  num_layers: 6
-  num_heads: 8
-  intermediate_size: 1024
-  max_seq_len: 1024
-  dropout: 0.20           # 과적합 방지를 위해 dropout 강화 (0.15 → 0.20)
+  hidden_size: 768
+  num_layers: 12
+  num_heads: 12
+  intermediate_size: 3072
   tie_weights: true
   rope_base: 10000.0
-
+  max_seq_len: 1024
+  dropout: 0.1
 training:
-  learning_rate: 2.0e-5   # 낮춤 (5e-5 → 2e-5): 세밀한 fine-tuning
-  weight_decay: 0.10      # 높임 (0.05 → 0.10): 과적합 억제 강화
+  learning_rate: 2.0e-05
+  weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
-  grad_clip: 0.5
-  warmup_steps: 100        # 짧게 (300 → 100)
+  grad_clip: 1.0
+  warmup_steps: 200
   batch_size: 2
   gradient_accumulation_steps: 8
-  max_steps: 3000          # 줄임 (8000 → 3000): 1000스텝에 이미 수렴 확인됨
-  eval_interval: 200       # 자주 (1000 → 200): 과적합 조기 감지
-  save_interval: 500       # 자주 (2000 → 500)
-  log_interval: 50
-  device: "auto"
+  max_steps: 5000
+  eval_interval: 500
+  save_interval: 1000
+  log_interval: 100
+  device: auto
   fp16: false
   bf16: false
-
 data:
-  train_path: "data/processed/stage5/train_stage5_filtered.jsonl"  # 필터링된 고품질 데이터
-  eval_path: "data/processed/stage5/eval_stage5.jsonl"
+  train_path: data/processed/stage5_university/train_stage5_university.jsonl
+  eval_path: data/processed/stage5_university/eval_stage5_university.jsonl
   max_seq_len: 1024
-  mode: "clm"
-
+  mode: clm
+  target_samples: 100,000건 학술위키+Q&A
 tokenizer:
-  path: "data/tokenizer/eureka.model"
-
+  path: data/tokenizer/eureka.model
 teacher:
   enabled: true
-  ollama_url: "http://localhost:11434"
-  model: "gemma4:e4b"
-  reward_scoring: true
+  ollama_url: http://localhost:11434
+  model: gemma4:e4b
   score_threshold: 0.7
-
 continual:
   ewc_lambda: 1000.0
   replay_ratio: 0.08
-
 graduation:
-  metric: "eval_ppl"
-  threshold: 20.0          # 완화 (6.0 → 20.0): 짧은 학습으로 현실적인 목표
-  direction: "lower"
-
+  metric: eval_ppl
+  threshold: 20.0
+  direction: lower
 paths:
-  checkpoint_dir: "checkpoints/stage5_university"
-  tokenizer_path: "data/tokenizer/eureka.model"
+  checkpoint_dir: checkpoints/stage5_university
+  tokenizer_path: data/tokenizer/eureka.model

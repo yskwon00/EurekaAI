@@ -1,59 +1,52 @@
 stage: 2
-name: "stage2_elementary"
-description: "초등학교 단계: 기초 지식, Q&A 학습, Teacher 활용 (v1)"
-
+name: stage2_elementary
+description: 초등 단계 (120M 업그레이드)
 model:
   vocab_size: 32000
-  hidden_size: 512
-  num_layers: 6
-  num_heads: 8
-  intermediate_size: 1024
-  max_seq_len: 256        # MPS 속도 최적화 (512→256)
-  dropout: 0.3            # 점차 낮아짐 (0.35 → 0.3)
+  hidden_size: 768
+  num_layers: 12
+  num_heads: 12
+  intermediate_size: 3072
   tie_weights: true
   rope_base: 10000.0
-
+  max_seq_len: 512
+  dropout: 0.12
 training:
-  learning_rate: 1.5e-4   # 이전 단계보다 낮은 LR (fine-tuning)
+  learning_rate: 0.0001
   weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
   grad_clip: 1.0
-  warmup_steps: 500
-  batch_size: 8            # MPS 최적화 (seq_len=256)
-  gradient_accumulation_steps: 4  # effective batch = 32
-  max_steps: 5000           # 데이터 18K건 기준 충분
+  warmup_steps: 200
+  batch_size: 4
+  gradient_accumulation_steps: 4
+  max_steps: 5000
   eval_interval: 500
   save_interval: 1000
-  log_interval: 50          # 더 자주 확인
-  device: "auto"
+  log_interval: 100
+  device: auto
   fp16: false
   bf16: false
-
 data:
-  train_path: "data/processed/stage2/train_stage2.jsonl"
-  eval_path: "data/processed/stage2/eval_stage2.jsonl"
-  max_seq_len: 256
-  mode: "clm"
-
+  train_path: data/processed/stage2_elementary/train_stage2_elementary.jsonl
+  eval_path: data/processed/stage2_elementary/eval_stage2_elementary.jsonl
+  max_seq_len: 512
+  mode: clm
+  target_samples: 80,000건 교과서+쉬운위키
 tokenizer:
-  path: "data/tokenizer/eureka.model"
-
+  path: data/tokenizer/eureka.model
 teacher:
   enabled: true
-  ollama_url: "http://localhost:11434"
-  model: "gemma4:e4b"
-  qa_pairs_per_article: 3   # 문서당 Q&A 쌍 수
-
+  ollama_url: http://localhost:11434
+  model: gemma4:e4b
+  score_threshold: 0.7
 continual:
-  ewc_lambda: 3000.0
-  replay_ratio: 0.15        # Stage 0+1 데이터 15% 리플레이
-
+  ewc_lambda: 5000.0
+  replay_ratio: 0.15
 graduation:
-  metric: "eval_ppl"
-  threshold: 15.0           # PPL ≤ 15 (더 어려운 기준)
-  direction: "lower"
-
+  metric: eval_ppl
+  threshold: 20.0
+  direction: lower
 paths:
-  checkpoint_dir: "checkpoints/stage2_elementary"
-  tokenizer_path: "data/tokenizer/eureka.model"
+  checkpoint_dir: checkpoints/stage2_elementary
+  tokenizer_path: data/tokenizer/eureka.model
