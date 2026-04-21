@@ -251,26 +251,74 @@ class OllamaTeacher:
     ) -> float:
         """
         Score a student model response on a 0.0–1.0 scale.
-        Used as a reward signal in RLVR/RLHF training.
+        Uses heuristic scoring since Gemma4 thinking model returns empty content.
+        Falls back to text depth analysis which is reliable for quality filtering.
         """
-        system = (
-            "You are an objective evaluator. "
-            "Score the answer from 0.0 to 1.0. "
-            "Return ONLY a float number, nothing else."
-        )
-        ref_text = f"\n정답 참고: {reference}" if reference else ""
-        prompt = (
-            f"질문: {question}\n"
-            f"학생 답변: {answer}"
-            f"{ref_text}\n\n"
-            f"점수 (0.0~1.0):"
-        )
-        resp = self.generate(prompt, system=system, temperature=0.0, max_tokens=10, use_cache=False)
+        import re
+
+        # ── 1차: 텍스트 품질 휴리스틱 기반 채점 (LLM 불필요) ─────────────────
+        # Gemma4 thinking 모델이 content를 비워두는 알려진 이슈를 우회
+        score = self._heuristic_score(answer, stage)
+
+        # ── 2차: LLM 채점 시도 (성공 시 덮어씀) ─────────────────────────────
         try:
-            score = float(resp.content.strip().split()[0])
-            return max(0.0, min(1.0, score))
-        except Exception:
-            return 0.5  # neutral default
+            # yes/no 방식이 float 파싱보다 훨씬 안정적
+            prompt = (
+                f"Answer only 'yes' or 'no'.\n"
+                f"Is this a high-quality university-level academic answer?\n"
+                f"Answer: {answer[:600]}\n"
+                f"High quality (yes/no):"
+            )
+            resp = self.generate(prompt, temperature=0.0, use_cache=False)
+            content = resp.content.strip().lower()
+            if content:
+                if content.startswith("yes"):
+                    score = max(score, 0.85)
+                elif content.startswith("no"):
+                    score = min(score, 0.45)
+                else:
+                    # float가 응답에 포함된 경우
+                    m = re.search(r"0\.\d+|1\.0", content)
+                    if m:
+                        score = float(m.group(0))
+        except Exception as e:
+            logger.debug(f"LLM scoring failed, using heuristic: {e}")
+
+        return max(0.0, min(1.0, score))
+
+    def _heuristic_score(self, answer: str, stage: int) -> float:
+        """텍스트 길이, 학술 키워드, 문장 복잡도 기반 품질 추정."""
+        import re
+        if not answer or len(answer) < 30:
+            return 0.0
+
+        score = 0.5  # base
+
+        # 길이 기여 (stage가 높을수록 긴 답변 선호)
+        min_len = {5: 150, 4: 100, 3: 80, 2: 50, 1: 20}.get(stage, 80)
+        if len(answer) >= min_len * 2:
+            score += 0.15
+        elif len(answer) >= min_len:
+            score += 0.05
+
+        # 학술 키워드 (한/영 혼합)
+        academic_kw = [
+            "분석", "관점", "의미", "맥락", "함의", "학술", "이론", "개념",
+            "논거", "주장", "근거", "결론", "따라서", "그러므로", "특히",
+            "analysis", "perspective", "academic", "theoretical", "significant",
+            "furthermore", "therefore", "consequently", "demonstrates", "implies"
+        ]
+        hits = sum(1 for kw in academic_kw if kw in answer)
+        score += min(hits * 0.03, 0.20)
+
+        # 문장 수 (다단락 구성)
+        sentences = len(re.split(r'[.!?。]\s*', answer))
+        if sentences >= 5:
+            score += 0.10
+        elif sentences >= 3:
+            score += 0.05
+
+        return min(score, 1.0)
 
     def generate_synthetic_stage_data(
         self,
@@ -343,31 +391,30 @@ class OllamaTeacher:
     ) -> dict:
         """
         Judge which of two answers is better — used for RLHF preference data.
-
-        Returns:
-            {"chosen": str, "rejected": str, "reason": str}
+        Returns: {"chosen": str, "rejected": str, "reason": str}
         """
-        system = (
-            f"You are evaluating {STAGE_NAMES_KO[stage]} level AI responses.\n"
-            "Choose which answer is better and explain briefly.\n"
-            'Return JSON: {"winner": "A" or "B", "reason": "..."}'
-        )
+        # yes/no 방식효으로 단순화 — float 파싱보다 안정적
         prompt = (
-            f"질문: {question}\n\n"
-            f"답변 A: {answer_a}\n\n"
-            f"답변 B: {answer_b}\n\n"
-            "어느 답변이 더 나은가요?"
+            f"Answer only 'A' or 'B'.\n"
+            f"Which answer is better for the question?\n\n"
+            f"Question: {question[:200]}\n"
+            f"Answer A: {answer_a[:300]}\n"
+            f"Answer B: {answer_b[:300]}\n\n"
+            f"Better answer (A or B):"
         )
-
-        resp = self.generate(prompt, system=system, temperature=0.2, max_tokens=256, use_cache=False, stage=stage)
         try:
-            text = resp.content
-            start = text.find("{")
-            end = text.rfind("}") + 1
-            result = json.loads(text[start:end])
-            winner = result.get("winner", "A")
-            chosen = answer_a if winner == "A" else answer_b
-            rejected = answer_b if winner == "A" else answer_a
-            return {"chosen": chosen, "rejected": rejected, "reason": result.get("reason", "")}
+            resp = self.generate(prompt, temperature=0.0, use_cache=False, stage=stage)
+            content = resp.content.strip().upper() if resp.content else ""
+            if content.startswith("A"):
+                winner = "A"
+            elif content.startswith("B"):
+                winner = "B"
+            else:
+                # heuristic fallback: 더 긴 답변이 더 충실한 답변
+                winner = "A" if len(answer_a) >= len(answer_b) else "B"
         except Exception:
-            return {"chosen": answer_a, "rejected": answer_b, "reason": "parse_error"}
+            winner = "A" if len(answer_a) >= len(answer_b) else "B"
+
+        chosen   = answer_a if winner == "A" else answer_b
+        rejected = answer_b if winner == "A" else answer_a
+        return {"chosen": chosen, "rejected": rejected, "reason": f"winner={winner}"}

@@ -1,65 +1,123 @@
 import os
 import sys
+import time
 import wandb
 from pathlib import Path
 
-# Project settings
 PROJECT_NAME = "EurekaAI-Curriculum"
 
-def wandb_sync_history():
-    print(f"🚀 소급 업로드 스크립트 시작: {PROJECT_NAME}")
+def get_data_prep_config(stage_idx):
+    if stage_idx == 0:
+        return {"method": "HuggingFace wiki_ko + wiki_en simple load", "samples": 70000}
+    elif stage_idx == 1:
+        return {"method": "Ollama Teacher Synthetic Q&A (toddler style)", "samples": 55000}
+    elif stage_idx == 2:
+        return {"method": "Ollama Teacher Q&A + basic CoT + Continual Replay", "samples": 25000}
+    elif stage_idx == 3:
+        return {"method": "Ollama Teacher Advanced CoT + Score Filtering", "samples": 15000}
+    return {}
+
+def wandb_lineage_sync():
+    """
+    기존 아티팩트의 해시 중복으로 인해 W&B가 같은 노드(v0)만 재사용하여
+    그래프가 끊기는 문제를 해결하기 위해 고유 버전(v2)을 강제 생성하여
+    DAG 트리를 완벽하게 새로 잇습니다.
+    """
+    print(f"🚀 [Lineage Sync V2] 강제 버저닝 리니지 구축 시작: {PROJECT_NAME}")
     
-    # Check if logged in (will prompt if not)
     if wandb.api.api_key is None:
-        print("⚠️ W&B API Key가 없습니다. 터미널에서 'wandb login' 을 먼저 실행해주세요!")
+        print("⚠️ W&B API Key 누락. 'wandb login' 필수.")
         sys.exit(1)
         
-    run = wandb.init(project=PROJECT_NAME, job_type="retroactive_upload", name="Upload_History_0_to_3")
+    stages = range(4) # 0, 1, 2, 3
     
-    stages = range(4) # Stage 0 to 3
+    # 더미 해시 파일을 만들어 버전을 무조건 새로 따게 만듭니다.
+    dummy_file = Path("dummy_lineage.txt")
+    with open(dummy_file, "w") as f:
+        f.write(f"Lineage Version Force: {time.time()}")
     
-    # 1. Upload Datasets
-    print("\n[1] Datasets 업로드 중...")
-    for stage_idx in stages:
-        data_dir = Path(f"data/processed/stage{stage_idx}")
+    for stage in stages:
+        stage_name = f"stage{stage}"
+        print(f"\n=========================================")
+        print(f" ➡️  Stage {stage} Lineage 처리 중")
+        print(f"=========================================")
+        
+        # ── 1. Data Preparation Run (데이터 파이프라인 노드) ──
+        run_data = wandb.init(
+            project=PROJECT_NAME, 
+            job_type="data_prep", 
+            name=f"{stage_name}_data_generation_v2",
+            config=get_data_prep_config(stage),
+            reinit=True
+        )
+        
+        data_dir = Path(f"data/processed/{stage_name}")
+        dataset_artifact = None
         if data_dir.exists():
-            artifact = wandb.Artifact(name=f"dataset-stage{stage_idx}", type="dataset", 
-                                      description=f"EurekaAI Stage {stage_idx} training dataset (Retroactive)")
-            # Add files
+            dataset_artifact = wandb.Artifact(
+                name=f"dataset-{stage_name}", 
+                type="dataset", 
+                description=f"Generated dataset for {stage_name}"
+            )
             for file_path in data_dir.glob("*.jsonl"):
-                artifact.add_file(str(file_path))
+                dataset_artifact.add_file(str(file_path))
             
-            run.log_artifact(artifact)
-            print(f"  ✅ 업로드 완료: dataset-stage{stage_idx}")
-        else:
-            print(f"  ⚠️ 데이터 폴더 없음: {data_dir}")
+            # 버전을 갱신하기 위한 더미 파일 추가
+            dataset_artifact.add_file(str(dummy_file))
+            
+            run_data.log_artifact(dataset_artifact)
+            print(f"  ✅ [Data Node] dataset-{stage_name} (New Version) 로깅됨")
+        run_data.finish()
+        
+        # ── 2. Training Run (훈련 파이프라인 노드) ──
+        run_train = wandb.init(
+            project=PROJECT_NAME, 
+            job_type="train", 
+            name=f"{stage_name}_training_v2",
+            reinit=True
+        )
+        
+        # [INPUT 1] 방금 생성한(혹은 과거에 생성했던) 데이터셋 사용 명시
+        if dataset_artifact:
+            run_train.use_artifact(f"dataset-{stage_name}:latest")
+            print(f"  🔗 [Lineage] Input: dataset-{stage_name} 연결 완료")
+            
+        # [INPUT 2] 이전 스테이지의 졸업 모델 사용 명시 (Stage 0 제외)
+        if stage > 0:
+            prev_stage = f"stage{stage-1}"
+            try:
+                run_train.use_artifact(f"model-{prev_stage}:latest")
+                print(f"  🔗 [Lineage] Input: model-{prev_stage} 연결 완료")
+            except Exception as e:
+                print(f"  ⚠️ 이전 모델 아티팩트 연결 실패: {e}")
 
-    # 2. Upload Models
-    print("\n[2] Models 업로드 중...")
-    for stage_idx in stages:
-        # Find stage name
+        # [OUTPUT] 훈련 결과 모델을 새로운 아티팩트로 로깅
         checkpoints_dir = Path("checkpoints")
-        stage_dirs = [d for d in checkpoints_dir.iterdir() if d.is_dir() and d.name.startswith(f"stage{stage_idx}_")]
+        stage_dirs = [d for d in checkpoints_dir.iterdir() if d.is_dir() and d.name.startswith(f"{stage_name}_")]
         
         if stage_dirs:
-            stage_dir = stage_dirs[0]
-            best_dir = stage_dir / stage_dir.name / "best"
-            
+            best_dir = stage_dirs[0] / stage_dirs[0].name / "best"
             if best_dir.exists():
-                artifact = wandb.Artifact(name=f"model-stage{stage_idx}", type="model",
-                                          description=f"EurekaAI Stage {stage_idx} Best Model (Retroactive)")
-                artifact.add_dir(str(best_dir))
+                model_artifact = wandb.Artifact(
+                    name=f"model-{stage_name}", 
+                    type="model",
+                    description=f"{stage_name} Best Checkpoint"
+                )
+                model_artifact.add_dir(str(best_dir))
                 
-                run.log_artifact(artifact)
-                print(f"  ✅ 업로드 완료: model-stage{stage_idx}")
-            else:
-                print(f"  ⚠️ Best 모델 없음: {best_dir}")
-        else:
-            print(f"  ⚠️ 체크포인트 폴더 없음: checkpoints/stage{stage_idx}_*")
+                # 버전을 갱신하기 위한 더미 파일 추가
+                model_artifact.add_file(str(dummy_file))
+                
+                run_train.log_artifact(model_artifact)
+                print(f"  ✅ [Model Node] model-{stage_name} (New Version) 로깅됨 (Output)")
+        run_train.finish()
 
-    run.finish()
-    print("\n🎉 모든 히스토리 (Stage 0~3) 업로드 완료!")
+    # 정리
+    if dummy_file.exists():
+        dummy_file.unlink()
+
+    print("\n🎉 완벽한 커리큘럼 리니지 그래프(Lineage Graph V2) 구축 완료!")
     print(f"👉 대시보드 바로가기: https://wandb.ai/{wandb.api.viewer().get('entity')}/{PROJECT_NAME}")
 
 if __name__ == "__main__":
-    wandb_sync_history()
+    wandb_lineage_sync()

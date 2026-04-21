@@ -68,16 +68,18 @@ def generate_preference_data(max_workers: int = 2) -> list[dict]:
 
     def process_one(question):
         try:
-            # 두 가지 답변 생성
-            resp_a = teacher.generate(question, temperature=0.9, max_tokens=300)
-            resp_b = teacher.generate(question, temperature=0.3, max_tokens=300)
-            if not (resp_a and resp_b): return None
+            # 두 가지 답변 생성 (각각 temperature 다르게, stage=6으로 캐시)
+            resp_a = teacher.generate(question, temperature=0.9, use_cache=True, stage=6)
+            resp_b = teacher.generate(question, temperature=0.3, use_cache=True, stage=6)
+            # 빈 응답 필터링
+            if not resp_a or not resp_b: return None
+            if not resp_a.content or not resp_b.content: return None
+            if len(resp_a.content) < 20 or len(resp_b.content) < 20: return None
 
-            # 어느 답변이 더 나은지 Teacher가 판단
             pref = teacher.create_preference_pairs(
                 question=question, answer_a=resp_a.content, answer_b=resp_b.content, stage=6
             )
-            if pref and pref.get("chosen"):
+            if pref and pref.get("chosen") and len(pref["chosen"]) > 20:
                 return {
                     "text": f"Q: {question}\nA: {pref['chosen']}",
                     "source": "preference_chosen",
@@ -89,9 +91,14 @@ def generate_preference_data(max_workers: int = 2) -> list[dict]:
         return None
 
     samples = []
-    with ThreadPoolExecutor(max_workers=max_workers) as ex:
-        for result in ex.map(process_one, questions):
-            if result: samples.append(result)
+    with ThreadPoolExecutor(max_workers=2) as ex:
+        futures = {ex.submit(process_one, q): q for q in questions}
+        for i, future in enumerate(as_completed(futures), 1):
+            result = future.result()
+            if result:
+                samples.append(result)
+            if i % 10 == 0:
+                logger.info(f"  진행: {i}/{len(questions)} | 선호 데이터: {len(samples)}건")
     logger.info(f"✅ 선호 데이터: {len(samples):,}건")
     return samples
 
@@ -117,6 +124,7 @@ def generate_code_data() -> list[dict]:
 
 
 def load_social_wiki(max_samples: int = 10000) -> list[dict]:
+    """300자 이상 단락만 수집 (Stage 5 교훈 적용)."""
     samples = []
     try:
         from datasets import load_dataset
@@ -125,7 +133,7 @@ def load_social_wiki(max_samples: int = 10000) -> list[dict]:
             if len(samples) >= max_samples: break
             for para in item.get("text","").strip().split("\n"):
                 para = para.strip()
-                if 200 <= len(para) <= 1000:
+                if 300 <= len(para) <= 1000:   # 300자 이상으로 상향 (과적합 방지)
                     samples.append({"text": para, "source": "wiki_social", "stage": 6})
                 if len(samples) >= max_samples: break
         random.shuffle(samples)
@@ -139,12 +147,18 @@ def load_replay(max_per_stage: int = 1000) -> list[dict]:
     samples = []
     for path in PREV_STAGES:
         if not path.exists(): continue
-        lines = path.read_text().strip().split("\n")
+        lines = [l for l in path.read_text().strip().split("\n") if l.strip()]
         random.shuffle(lines)
         n = min(max_per_stage, int(len(lines) * 0.05))
         for line in lines[:n]:
-            d = json.loads(line); d["source"] = f"{path.parent.name}_replay"; d["stage"] = 6
-            samples.append(d)
+            try:
+                d = json.loads(line)
+                # 300자 미만 리플레이 제외
+                if len(d.get("text", "")) < 300: continue
+                d["source"] = f"{path.parent.name}_replay"
+                d["stage"] = 6
+                samples.append(d)
+            except: pass
     logger.info(f"✅ 이전 단계 리플레이: {len(samples):,}건")
     return samples
 
@@ -154,6 +168,39 @@ def save_jsonl(samples, path):
     with open(path, "w", encoding="utf-8") as f:
         for s in samples: f.write(json.dumps(s, ensure_ascii=False) + "\n")
     logger.info(f"💾 저장: {len(samples):,}건 → {path}")
+
+
+def upload_wandb_artifact(train_path: Path, eval_path: Path):
+    """W&B 아티팩트 업로드 및 리니지 연결 (dataset-stage5 → dataset-stage6)."""
+    try:
+        import wandb, time
+        run = wandb.init(
+            project="EurekaAI-Curriculum",
+            job_type="data_prep",
+            name="stage6_data_generation",
+            config={"stage": 6, "source": "wiki+preference+conversation"},
+            reinit=True,
+        )
+        # 이전 Stage 아티팩트 연결
+        try:
+            run.use_artifact("dataset-stage5:latest")
+            logger.info("🔗 [W&B] 이전 dataset-stage5 연결 완료")
+        except Exception as e:
+            logger.warning(f"⚠️  dataset-stage5 연결 실패: {e}")
+
+        art = wandb.Artifact("dataset-stage6", type="dataset",
+                             description="Stage 6 Social dataset (preference+wiki+conversation)")
+        art.add_dir(str(STAGE_DIR))
+        # 강제 버저닝용 dummy
+        dummy = STAGE_DIR / "dummy_lineage.txt"
+        dummy.write_text(f"lineage:{time.time()}")
+        art.add_file(str(dummy))
+        run.log_artifact(art)
+        dummy.unlink(missing_ok=True)
+        run.finish()
+        logger.info("✅ [W&B] dataset-stage6 아티팩트 업로드 완료")
+    except Exception as e:
+        logger.warning(f"⚠️  W&B 업로드 실패: {e}")
 
 
 def main():
@@ -181,6 +228,9 @@ def main():
     save_jsonl(deduped[n_eval:], TRAIN_FILE)
     save_jsonl(deduped[:n_eval], EVAL_FILE)
     logger.info(f"\n✅ Stage 6 데이터 완료: Train {total-n_eval:,} / Eval {n_eval:,}")
+
+    # W&B 리니지 업로드
+    upload_wandb_artifact(TRAIN_FILE, EVAL_FILE)
 
 
 if __name__ == "__main__":

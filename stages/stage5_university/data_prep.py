@@ -128,6 +128,37 @@ def main():
     n_eval = min(TARGET_EVAL, int(total * 0.1))
     save_jsonl(deduped[n_eval:], TRAIN_FILE)
     save_jsonl(deduped[:n_eval], EVAL_FILE)
+    
+    # ── W&B Lineage Logging ──
+    try:
+        import wandb
+        import time
+        run = wandb.init(
+            project="EurekaAI-Curriculum", 
+            job_type="data_prep", 
+            name="stage5_data_generation_v2",
+            config={"method": "Academic Wiki + Ollama Teacher Scoring"}
+        )
+        artifact = wandb.Artifact(
+            name="dataset-stage5", 
+            type="dataset", 
+            description="Generated dataset for stage5"
+        )
+        artifact.add_dir(str(STAGE_DIR))
+        
+        # 해시 무결성 우회를 위한 더미 파일
+        dummy_file = STAGE_DIR / "dummy_lineage.txt"
+        with open(dummy_file, "w") as f:
+            f.write(f"Lineage Hash Force: {time.time()}")
+        
+        artifact.add_file(str(dummy_file))
+        run.log_artifact(artifact)
+        run.finish()
+        logger.info("🌐 [W&B] dataset-stage5 아티팩트 업로드 완료!")
+        dummy_file.unlink()
+    except Exception as e:
+        logger.warning(f"⚠️ W&B 아티팩트 업로드 실패: {e}")
+        
     logger.info(f"\n✅ Stage 5 데이터 완료: Train {total-n_eval:,} / Eval {n_eval:,}")
 
 if __name__ == "__main__":

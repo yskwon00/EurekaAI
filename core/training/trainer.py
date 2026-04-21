@@ -317,24 +317,28 @@ class EurekaTrainer:
         logger.info(f"💾 Checkpoint saved: {path}")
 
         if self.wandb and tag in ["best", "final"]:
-            import wandb
-            stage_idx = self.config.current_stage
-            art_name = f"model-stage{stage_idx}"
-            
-            # 더미 파일을 통해 해시 강제 변형 및 버전 안전 생성 보장
-            import time
-            dummy_file = path / "dummy_lineage.txt"
-            with open(dummy_file, "w") as f:
-                f.write(f"Lineage Hash Force: {time.time()}")
-            # Only log artifact during these specific milestones
-            artifact = wandb.Artifact(
-                name=art_name, 
-                type="model",
-                description=f"EurekaAI {stage_name} {tag} checkpoint"
-            )
-            artifact.add_dir(str(path))
-            self.wandb.log_artifact(artifact, aliases=[tag, f"step_{self.global_step}"])
-            logger.info(f"🌐 W&B Artifact uploaded: {art_name} ({tag})")
+            try:
+                import wandb
+                stage_idx = self.config.current_stage
+                art_name = f"model-stage{stage_idx}"
+                
+                # 더미 파일을 통해 해시 강제 변형 및 버전 안전 생성 보장
+                import time
+                dummy_file = path / "dummy_lineage.txt"
+                with open(dummy_file, "w") as f:
+                    f.write(f"Lineage Hash Force: {time.time()}")
+                
+                # Only log artifact during these specific milestones
+                artifact = wandb.Artifact(
+                    name=art_name, 
+                    type="model",
+                    description=f"EurekaAI stage{stage_idx} {tag} checkpoint"
+                )
+                artifact.add_dir(str(path))
+                self.wandb.log_artifact(artifact, aliases=[tag, f"step_{self.global_step}"])
+                logger.info(f"🌐 W&B Artifact uploaded: {art_name} ({tag})")
+            except Exception as e:
+                logger.error(f"⚠️ W&B Artifact 업로드 중 에러 발생 (훈련은 계속됨): {e}")
 
     def load_checkpoint(self, tag: str = "latest"):
         path = self.ckpt_dir / tag

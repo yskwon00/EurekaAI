@@ -273,13 +273,25 @@ class EurekaModel(nn.Module):
         top_k: int = 50,
         top_p: float = 0.9,
         eos_token_id: Optional[int] = None,
+        repetition_penalty: float = 1.3,
     ) -> torch.Tensor:
-        """Autoregressive generation with temperature + top-k/p sampling."""
+        """Autoregressive generation with temperature + top-k/p sampling + repetition penalty."""
         self.eval()
         for _ in range(max_new_tokens):
             # Crop to max context
             ctx = input_ids[:, -self.config.max_seq_len:]
-            logits = self(ctx)["logits"][:, -1, :] / max(temperature, 1e-8)
+            logits = self(ctx)["logits"][:, -1, :]
+
+            # Repetition penalty: 이미 생성된 토큰의 logit을 penalty로 나눔
+            if repetition_penalty != 1.0:
+                for b in range(input_ids.size(0)):
+                    for token_id in set(input_ids[b].tolist()):
+                        if logits[b, token_id] > 0:
+                            logits[b, token_id] /= repetition_penalty
+                        else:
+                            logits[b, token_id] *= repetition_penalty
+
+            logits = logits / max(temperature, 1e-8)
 
             # Top-k filtering
             if top_k > 0:
