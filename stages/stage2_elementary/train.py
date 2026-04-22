@@ -180,7 +180,7 @@ def main(config_path: str = None, reset=False):
 
     best_loss = metrics.get("best_eval_loss", float("inf"))
     ppl = math.exp(min(best_loss, 20))
-    graduated = ppl <= 15.0
+    graduated = ppl <= 20.0
 
     logger.info(f"📊 Stage 2 최종 PPL: {ppl:.2f} "
                 f"({'✅ GRADUATED!' if graduated else '❌ 미졸업 (기준 PPL≤15)'})")

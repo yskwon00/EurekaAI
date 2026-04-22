@@ -132,7 +132,7 @@ def load_model(stage: int, ckpt_type: str = "best"):
 # ---- 추론 -------------------------------------------------------------------
 
 def generate_text(prompt: str, max_tokens: int = 200, temperature: float = 0.8,
-                  top_k: int = 40, top_p: float = 0.9) -> str:
+                  top_k: int = 40, top_p: float = 0.9, repetition_penalty: float = 1.2) -> str:
     """텍스트를 생성합니다."""
     if _model is None or _tokenizer is None:
         return "(모델이 로드되지 않았습니다)"
@@ -155,6 +155,7 @@ def generate_text(prompt: str, max_tokens: int = 200, temperature: float = 0.8,
             temperature=temperature,
             top_k=top_k,
             top_p=top_p,
+            repetition_penalty=repetition_penalty,
         )
 
     # 입력 이후 생성된 토큰만 추출
@@ -227,11 +228,13 @@ class EurekaHandler(BaseHTTPRequestHandler):
         # ── Ollama /api/generate 엔드포인트 ────────────────────────────────
         if self.path == "/api/generate":
             prompt      = data.get("prompt", "")
-            max_tokens  = data.get("options", {}).get("num_predict", 200)
-            temperature = data.get("options", {}).get("temperature", 0.8)
+            opts        = data.get("options", {})
+            max_tokens  = opts.get("num_predict", 200)
+            temperature = opts.get("temperature", 0.8)
+            rep_p       = opts.get("repetition_penalty", 1.2)
 
             t0       = time.time()
-            response = generate_text(prompt, max_tokens=max_tokens, temperature=temperature)
+            response = generate_text(prompt, max_tokens=max_tokens, temperature=temperature, repetition_penalty=rep_p)
             elapsed  = time.time() - t0
 
             self.send_json({

@@ -1,10 +1,10 @@
 stage: 4
 name: stage4_high
-description: 고등 단계 (120M 업그레이드)
+description: 고등 단계 (80M 업그레이드)
 model:
   vocab_size: 32000
   hidden_size: 768
-  num_layers: 12
+  num_layers: 8
   num_heads: 12
   intermediate_size: 3072
   tie_weights: true

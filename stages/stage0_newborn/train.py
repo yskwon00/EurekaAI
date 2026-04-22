@@ -182,7 +182,6 @@ def main(config_path: str = None, reset=False):
     logger.info("=" * 55)
 
     # ── Load Config ────────────────────────────────────────────────────────────
-    # config.yaml을 기본값으로 사용 (--config 없이 실행해도 자동 적용)
     default_config = Path(__file__).parent / "config.yaml"
     if config_path is None and default_config.exists():
         config_path = str(default_config)
@@ -204,6 +203,15 @@ def main(config_path: str = None, reset=False):
     logger.info(f"Config: {config}")
     device = config.resolve_device()
     logger.info(f"Device: {device}")
+
+    # -- Reset Logic -----------------------------------------------------------
+    if reset:
+        import shutil
+        checkpoint_dir = Path(config.checkpoint_dir)
+        if checkpoint_dir.exists():
+            logger.info(f"🧹 --reset 요청: 기존 체크포인트 삭제 ({checkpoint_dir})")
+            shutil.rmtree(checkpoint_dir)
+            checkpoint_dir.mkdir(parents=True, exist_ok=True)
 
     # ── Tokenizer ──────────────────────────────────────────────────────────────
     tokenizer = ensure_tokenizer(config)
@@ -295,5 +303,10 @@ if __name__ == "__main__":
         default=None,
         help="Path to YAML config file",
     )
+    parser.add_argument(
+        "--reset",
+        action="store_true",
+        help="Reset training and start from scratch",
+    )
     args = parser.parse_args()
-    main(config_path=args.config)
+    main(config_path=args.config, reset=args.reset)

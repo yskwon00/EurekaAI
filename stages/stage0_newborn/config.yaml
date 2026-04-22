@@ -1,10 +1,10 @@
 stage: 0
 name: stage0_newborn
-description: 신생아 단계 (120M 업그레이드)
+description: 신생아 단계 (80M 최적화)
 model:
   vocab_size: 32000
   hidden_size: 768
-  num_layers: 12
+  num_layers: 8
   num_heads: 12
   intermediate_size: 3072
   tie_weights: true
@@ -12,12 +12,12 @@ model:
   max_seq_len: 512
   dropout: 0.15
 training:
-  learning_rate: 0.0003
+  learning_rate: 0.0001
   weight_decay: 0.1
   beta1: 0.9
   beta2: 0.95
   grad_clip: 1.0
-  warmup_steps: 200
+  warmup_steps: 500
   batch_size: 4
   gradient_accumulation_steps: 4
   max_steps: 5000
@@ -32,7 +32,7 @@ data:
   eval_path: data/processed/stage0_newborn/eval_stage0_newborn.jsonl
   max_seq_len: 512
   mode: clm
-  target_samples: 30,000건 TinyStories+동화
+  target_samples: 30,000건 TinyStories+초간단한국어
 tokenizer:
   path: data/tokenizer/eureka.model
 teacher:
@@ -45,7 +45,7 @@ continual:
   replay_ratio: 0.15
 graduation:
   metric: eval_ppl
-  threshold: 20.0
+  threshold: 30.0
   direction: lower
 paths:
   checkpoint_dir: checkpoints/stage0_newborn

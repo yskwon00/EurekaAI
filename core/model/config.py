@@ -171,12 +171,12 @@ def tiny_config() -> EurekaConfig:
 
 
 def small_config() -> EurekaConfig:
-    """~120M params — Mac M4 16GB에서 학습 가능한 최적 크기 (GPT-2 small 수준)"""
+    """~80M params — Mac M4 16GB에서 리소스 부하를 최소화하면서도 고성능을 내는 최적 크기"""
     return EurekaConfig(
         hidden_size=768,
-        num_layers=12,
+        num_layers=8,             # 12 -> 8 (리소스 최적화)
         num_heads=12,
-        intermediate_size=3072,   # hidden_size × 4 (GPT-2 표준)
+        intermediate_size=3072,   # hidden_size × 4
         vocab_size=32000,
         max_seq_len=1024,
         dropout=0.10,

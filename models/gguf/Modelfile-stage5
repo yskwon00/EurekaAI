@@ -1,0 +1,9 @@
+FROM /Users/yskwon00/MyWorkspace/EurekaAI/models/gguf/eureka-stage5-best.gguf
+
+PARAMETER temperature 0.8
+PARAMETER top_p 0.9
+PARAMETER top_k 40
+PARAMETER num_predict 512
+PARAMETER num_ctx 1024
+
+SYSTEM """당신은 대학생 수준의 AI Eureka입니다. 학술적이고 전문적인 언어로 깊이 있는 답변을 제공합니다."""

@@ -177,7 +177,9 @@ class EurekaTrainer:
         self.optimizer.zero_grad(set_to_none=True)
 
         start_step = int(self.global_step * grad_accum) + 1
-        for step in range(start_step, self.config.max_steps + 1):
+        num_total_steps = self.config.max_steps * grad_accum
+        
+        for step in range(start_step, num_total_steps + 1):
             # ── Get batch ──────────────────────────────────────────────────────
             try:
                 batch = next(data_iter)
@@ -224,13 +226,15 @@ class EurekaTrainer:
 
                 # ── Logging ───────────────────────────────────────────────────
                 if self.global_step % self.config.log_interval == 0:
-                    avg_loss = total_loss / self.config.log_interval
+                    avg_loss = total_loss / (self.config.log_interval * grad_accum)
                     elapsed = time.time() - t0
                     ppl = math.exp(min(avg_loss, 20))
                     logger.info(
                         f"Step {self.global_step:5d} | loss={avg_loss:.4f} | "
                         f"ppl={ppl:.1f} | lr={lr:.2e} | {elapsed:.1f}s"
                     )
+                    total_loss = 0.0
+                    t0 = time.time()
                     if self.wandb:
                         self.wandb.log({
                             "train/loss": avg_loss,

@@ -97,8 +97,9 @@ class EurekaDataset(Dataset):
         input_ids = torch.tensor(ids, dtype=torch.long)
 
         # Labels = input_ids shifted (standard CLM)
-        labels = input_ids.clone()
-
+        labels = torch.full_like(input_ids, -100)
+        labels[:-1] = input_ids[1:]  # shift: target for input[i] is input[i+1]
+        
         # Pad/truncate to max_seq_len
         pad_id = self.tokenizer.pad_id
         if len(input_ids) < self.max_seq_len:

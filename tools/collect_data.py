@@ -108,36 +108,47 @@ def load_wikipedia_ko(target: int, min_len: int = 200, max_len: int = 800,
 # ── Stage 0: 신생아 (TinyStories) ─────────────────────────────────────────────
 
 def collect_stage0(target: int = 30_000, preview: bool = False) -> list[dict]:
-    """TinyStories + 한국어 짧은 동화."""
+    """신생아 수준의 매우 단순한 문장 구성."""
     from datasets import load_dataset
     samples = []
 
-    # TinyStories (영어 동화, 매우 단순한 문장)
-    logger.info("📥 TinyStories 로딩...")
+    # 1. TinyStories (영어 동화, 매우 단순한 문장) - 80% 비중
+    logger.info("📥 TinyStories 로딩 (Stage 0)...")
     try:
-        ts_target = int(target * 0.6)
-        # 필요한 양의 3배 슬라이스로 넉넉하게 로드 후 필터링
-        ds = load_dataset("roneneldan/TinyStories", split=f"train[:{ts_target * 3}]")
+        ts_target = int(target * 0.8)
+        ds = load_dataset("roneneldan/TinyStories", split=f"train[:{ts_target * 5}]")
+        count = 0
         for item in ds:
             text = item.get("text", "").strip()
-            if 100 <= len(text) <= 600:
-                samples.append({"text": text[:500], "source": "tinystories", "stage": 0})
-            if len(samples) >= ts_target:
+            # 단순한 문장이지만 길이는 넉넉하게 (100~1000자)
+            if 100 <= len(text) <= 1000:
+                samples.append({"text": text, "source": "tinystories", "stage": 0})
+                count += 1
+            if count >= ts_target:
                 break
-        logger.info(f"  TinyStories: {len(samples):,}건")
+        logger.info(f"  TinyStories: {count:,}건")
     except Exception as e:
         logger.warning(f"  TinyStories 실패: {e}")
 
-    # 한국어 위키 짧은 단락 (아동 수준, 100~300자)
+    # 2. 한국어 위키백과 (초간단 단락) - 20% 비중
+    logger.info("📥 Wikipedia (ko) 초간단 로딩 (Stage 0)...")
     try:
-        ko_samples = load_wikipedia_ko(
-            target=int(target * 0.4),
-            min_len=100, max_len=300,
-            wiki_split="train[:500]"
-        )
+        # 단어 수도 매우 적고 단순한 것만 필터링 (50~150자)
+        wiki_target = int(target * 0.2)
+        ko_samples = load_wikipedia_ko(target=wiki_target, min_len=50, max_len=150, wiki_split="train[:1000]")
+        for s in ko_samples:
+            s["stage"] = 0
         samples.extend(ko_samples)
     except Exception as e:
         logger.warning(f"  Wiki(ko) 실패: {e}")
+
+    # 3. 기본 한국어 표현 추가
+    seeds = [
+        "안녕하세요. 반가워요.", "나는 아이입니다.", "사과는 맛있어요.", "하늘이 파랗습니다.",
+        "엄마 아빠 사랑해요.", "학교에 가요.", "공놀이해요.", "잠을 자요.", "밥을 먹어요."
+    ] * 50
+    for txt in seeds:
+        samples.append({"text": txt, "source": "seed", "stage": 0})
 
     if preview:
         for s in samples[:3]:
