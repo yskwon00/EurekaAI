@@ -18,27 +18,50 @@ Stage 0 → Stage 1 → Stage 2 → Stage 3 → Stage 4 → Stage 5 → Stage 6
 🍼 신생아   🧸 유아   📚 초등   🔢 중등   📐 고등   🎓 대학   🌐 사회인
 ```
 
-- **모델**: TinyLearnAI-30M (Decoder-only Transformer)
-- **언어**: 한국어 + 영어 이중언어 BPE Tokenizer
-- **Teacher**: Ollama 로컬 API (합성 데이터 생성 + 지식 증류)
-- **환경**: Mac Apple Silicon (MPS) → Cloud CUDA 자동 전환
+- **모델**: EurekaAI-80M (Decoder-only Transformer)
+- **언어**: 한국어 + 영어 이중언어 BPE Tokenizer (32K Vocab)
+- **Teacher**: Ollama 로컬 API (Llama 3/Gemma 2 기반 합성 데이터)
+- **환경**: Mac Apple Silicon (MPS) 최적화
 - **망각 방지**: EWC + Replay Buffer (Continual Learning)
+
+---
+
+## 📈 Scaling Journey & Lessons Learned
+
+EurekaAI는 최적의 성능과 리소스 균형을 찾기 위해 세 차례의 모델 스케일링 실험을 거쳤습니다.
+
+### 1단계: 20M (Under-parameterized) — ❌ 실패
+- **증상**: 학습 데이터가 조금만 복잡해져도 Loss가 발산하거나, 문장 구조를 전혀 잡지 못함.
+- **교훈**: 32K의 Vocab을 소화하고 이중언어 관계를 이해하기에는 20M 규모가 물리적으로 부족함을 확인(모델 용량의 한계).
+
+### 2단계: 120M (Resource Overload) — ⚠️ 중단
+- **증상**: Mac M-시리즈 환경에서 MPS 메모리 점유율이 한계에 도달하여 시스템 전체가 불안정해짐. 학습 속도가 현저히 느려짐.
+- **교훈**: 로컬 개발 환경에서의 반복적인 실험과 빠른 피드백을 위해서는 리소스 효율성이 매우 중요함을 깨달음.
+
+### 3단계: 80M (The Goldilocks Zone) — ✅ 성공
+- **최적화**: Hidden 768, Layers 8로 조정하여 **성능과 리소스의 균형**을 맞춤.
+- **결과**: Stage 0(신생아)졸업 시 PPL 25.2, Stage 1(유아기)졸업 시 PPL 19.4 달성.
+
+### 💡 핵심 기술적 레슨런 (Technical Wins)
+- **Label Shifting Bug Fix**: Causal LM 학습 시 `labels`가 입력 데이터와 1-token 시프트되어야 '다음 단어 예측'이 올바르게 학습됨을 재확인하고 수정.
+- **Data Purification**: 초기에 위키백과 같은 복잡한 데이터를 Stage 0에 넣기보다, **TinyStories** 같은 초간단 영어/한국어 문장으로 시작하는 데이터 정제 과정이 학습 안정성에 결정적이었음.
+- **Trainer Logging**: Gradient Accumulation 상황에서 누적 손실값(Accumulated Loss)이 초기화되지 않아 PPL이 비정상적으로 높게 측정되던 로깅 버그 수정.
 
 ---
 
 ## 🏗️ 모델 아키텍처
 
 ```
-TinyLearnAI-30M
-├── Token Embedding (32K vocab × 512 hidden)
-├── 6 × TransformerBlock
+EurekaAI-80M
+├── Token Embedding (32K vocab × 768 hidden)
+├── 8 × TransformerBlock
 │   ├── Pre-LayerNorm
-│   ├── Multi-Head Causal Attention (8 heads, RoPE)
+│   ├── Multi-Head Causal Attention (12 heads, RoPE)
 │   ├── Pre-LayerNorm
-│   └── Feed-Forward (512 → 1024 → 512, GELU)
+│   └── Feed-Forward (768 → 3072 → 768, GELU)
 ├── Final LayerNorm
-└── LM Head (tied with embedding) ← 가중치 공유로 파라미터 절약
-~29M 파라미터 | Mac MPS 메모리 <2GB
+└── LM Head (tied with embedding)
+~81M 파라미터 | Mac MPS 메모리 점유 ~3-4GB
 ```
 
 ---
