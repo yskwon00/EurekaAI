@@ -59,7 +59,7 @@ def build_dataloaders(config, tokenizer):
     logger.info(f"Train: {len(train_ds):,}건, Eval: {len(eval_ds) if eval_ds else 0:,}건")
     return train_loader, eval_loader
 
-def main(config_path=None, resume=False):
+def main(config_path=None, resume=False, reset=False):
     logger.info("=" * 55)
     logger.info("   🔢 EurekaAI — Stage 3: Middle School Training")
     logger.info("=" * 55)
@@ -140,4 +140,4 @@ if __name__ == "__main__":
     parser.add_argument("--reset", action="store_true", help="이전 체크포인트를 무시하고 처음부터 다시 시작")
     parser.add_argument("--resume", action="store_true", help="최신 체크포인트에서 학습 재개")
     args = parser.parse_args()
-    main(config_path=args.config, resume=args.resume)
+    main(config_path=args.config, resume=args.resume, reset=args.reset)

@@ -1,5 +1,5 @@
 {
-  "current_stage": 2,
+  "current_stage": 3,
   "records": {
     "0": {
       "stage": 0,
@@ -38,10 +38,10 @@
     "2": {
       "stage": 2,
       "name": "📚 초등학교 (Elementary)",
-      "status": "training",
-      "best_metric": 0.0,
+      "status": "completed",
+      "best_metric": 84.4,
       "eval_history": [],
-      "train_steps": 0,
+      "train_steps": 10000,
       "checkpoint_path": ""
     },
     "3": {

@@ -193,16 +193,137 @@ def collect_stage1(target: int = 50_000, preview: bool = False) -> list[dict]:
 
 # ── Stage 2: 초등 ──────────────────────────────────────────────────────────────
 
-def collect_stage2(target: int = 80_000, preview: bool = False) -> list[dict]:
-    """쉬운 위키 단락 (200~500자)."""
+def load_sharegpt_ko(target: int, stage_idx: int = 2, min_len: int = 100, max_len: int = 600, max_turns: int = 4) -> list[dict]:
+    """ShareGPT 한국어 대화 직접 로드 (junelee/sharegpt_deepl_ko).
+
+    HuggingFace datasets 로더가 컬럼 불일치로 실패하므로
+    캐시된 JSON 파일을 직접 파싱. 대화를
+    'User: ...\\nAssistant: ...' 형식으로 변환.
+    """
+    import os, json as _json, glob as _glob
     samples = []
+
+    cache_pattern = os.path.expanduser(
+        "~/.cache/huggingface/hub/datasets--junelee--sharegpt_deepl_ko"
+        "/snapshots/*/ko_dataset_2.json"
+    )
+    found = _glob.glob(cache_pattern)
+
+    if not found:
+        logger.info("📥 ShareGPT-ko 캐시 없음 — 다운로드 시도...")
+        try:
+            from huggingface_hub import hf_hub_download
+            path = hf_hub_download(
+                repo_id="junelee/sharegpt_deepl_ko",
+                filename="ko_dataset_2.json",
+                repo_type="dataset",
+            )
+            found = [path]
+        except Exception as e:
+            logger.warning(f"  ShareGPT-ko 다운로드 실패: {e}")
+            return []
+
+    logger.info(f"📥 ShareGPT-ko 로드: {found[0]}")
+    with open(found[0], encoding="utf-8") as f:
+        raw = _json.load(f)
+
+    role_map = {"human": "User", "gpt": "Assistant",
+                "user": "User", "assistant": "Assistant"}
+    for item in raw:
+        if len(samples) >= target:
+            break
+        convs = item.get("conversations", [])
+        if len(convs) < 2:
+            continue
+        turns = []
+        for c in convs[:max_turns]:
+            role = role_map.get(c.get("from", "").lower())
+            val  = c.get("value", "").strip().replace("\r", "")
+            if role and val:
+                turns.append(f"{role}: {val[:500]}")
+        if len(turns) < 2:
+            continue
+        text = "\n".join(turns)
+        if len(text) < min_len or len(text) > max_len:
+            continue
+        ko_ratio = sum(1 for ch in text if "\uAC00" <= ch <= "\uD7A3") / max(len(text), 1)
+        if ko_ratio < 0.2:
+            continue
+        samples.append({"text": text, "source": "sharegpt_ko", "stage": stage_idx})
+
+    logger.info(f"  ShareGPT-ko: {len(samples):,}건 로드")
+    return samples
+
+
+def collect_stage2(target: int = 80_000, preview: bool = False) -> list[dict]:
+    """TinyStories(25%) + ShareGPT-ko(30%) + Wikipedia(40%) + 씨앗(5%) 혼합.
+
+    v4: 한국어 일상 대화(ShareGPT-ko)를 핵심 추가하여
+    한국어 Wikipedia 도메인 편향 문제 해소.
+    """
+    from datasets import load_dataset
+    samples = []
+
+    # 1. TinyStories (EN) — 25%
+    ts_target = int(target * 0.25)
+    logger.info(f"📥 TinyStories 로딩 (목표 {ts_target:,}건)...")
     try:
-        samples = load_wikipedia_ko(target, min_len=200, max_len=500,
-                                    wiki_split="train[:5000]")
+        ds = load_dataset("roneneldan/TinyStories", split=f"train[:{ts_target * 4}]")
+        ts_count = 0
+        for item in ds:
+            text = item.get("text", "").strip()
+            if 200 <= len(text) <= 1200:
+                samples.append({"text": text[:1000], "source": "tinystories", "stage": 2})
+                ts_count += 1
+            if ts_count >= ts_target:
+                break
+        logger.info(f"  TinyStories: {ts_count:,}건")
     except Exception as e:
-        logger.warning(f"  Stage2 데이터 수집 실패: {e}")
-    for s in samples:
-        s["stage"] = 2
+        logger.warning(f"  TinyStories 실패: {e}")
+
+    # 2. ShareGPT 한국어 대화 — 30% ⭐
+    sg_target = int(target * 0.30)
+    logger.info(f"📥 ShareGPT-ko 로딩 (목표 {sg_target:,}건)...")
+    samples.extend(load_sharegpt_ko(sg_target))
+
+    # 3. Korean Wikipedia — 40% (200~500자)
+    wiki_target = int(target * 0.40)
+    logger.info(f"📥 Wikipedia (ko) 로딩 (목표 {wiki_target:,}건)...")
+    try:
+        wiki = load_wikipedia_ko(wiki_target, min_len=200, max_len=500,
+                                 wiki_split="train[:20000]")
+        for s in wiki:
+            s["stage"] = 2
+        samples.extend(wiki)
+        logger.info(f"  Wikipedia (ko): {len(wiki):,}건")
+    except Exception as e:
+        logger.warning(f"  Wiki(ko) 실패: {e}")
+
+    # 4. 한국어+영어 씨앗 문장 — ~5%
+    seeds = [
+        "봄에는 꽃이 피고 새들이 노래합니다.",
+        "물은 100도씨에서 끓습니다.",
+        "지구는 태양 주위를 일 년에 한 바퀴 돕니다.",
+        "식물은 햇빛, 물, 이산화탄소로 광합성을 합니다.",
+        "삼각형의 세 각도의 합은 180도입니다.",
+        "우리나라의 수도는 서울입니다.",
+        "사람의 몸은 약 60%가 물로 이루어져 있습니다.",
+        "빛은 소리보다 훨씬 빠르게 이동합니다.",
+        "강아지는 사람의 친구입니다.",
+        "오늘 날씨가 좋아서 산책하기 좋아요.",
+        "학교에서 친구들과 함께 공부해요.",
+        "엄마가 맛있는 음식을 만들어 주셨어요.",
+        "Photosynthesis is how plants make food using sunlight.",
+        "Water freezes at 0 degrees and boils at 100 degrees Celsius.",
+        "The Earth orbits the Sun once every 365 days.",
+        "A triangle has three sides and angles summing to 180 degrees.",
+        "The capital of South Korea is Seoul.",
+        "Dogs are loyal companions to humans.",
+    ] * 220  # ~3,960건
+    for txt in seeds:
+        samples.append({"text": txt, "source": "seed_ko", "stage": 2})
+    logger.info(f"  씨앗 문장: {len(seeds):,}건")
+
     if preview:
         for s in samples[:3]:
             print(f"  [{s['source']}] {s['text'][:100]}")
@@ -212,15 +333,65 @@ def collect_stage2(target: int = 80_000, preview: bool = False) -> list[dict]:
 # ── Stage 3: 중등 ──────────────────────────────────────────────────────────────
 
 def collect_stage3(target: int = 100_000, preview: bool = False) -> list[dict]:
-    """위키 단락 (250~600자) — 논리적 내용 중심."""
+    """ShareGPT(40%) + Wikipedia(40%) + TinyStories(15%) + 씨앗(5%) 혼합.
+    중학교 수준의 논리적 사고 및 심화된 한국어 대화 학습.
+    """
+    from datasets import load_dataset
     samples = []
+
+    # 1. ShareGPT 한국어 대화 (심화) — 40%
+    sg_target = int(target * 0.40)
+    logger.info(f"📥 ShareGPT-ko 로딩 (목표 {sg_target:,}건)...")
+    samples.extend(load_sharegpt_ko(sg_target, stage_idx=3, min_len=250, max_len=800, max_turns=6))
+
+    # 2. Korean Wikipedia (심화) — 40% (300~800자)
+    wiki_target = int(target * 0.40)
+    logger.info(f"📥 Wikipedia (ko) 로딩 (목표 {wiki_target:,}건)...")
     try:
-        samples = load_wikipedia_ko(target, min_len=250, max_len=600,
-                                    wiki_split="train[:8000]")
+        wiki = load_wikipedia_ko(wiki_target, min_len=300, max_len=800,
+                                 wiki_split="train[:30000]")
+        for s in wiki:
+            s["stage"] = 3
+        samples.extend(wiki)
+        logger.info(f"  Wikipedia (ko): {len(wiki):,}건")
     except Exception as e:
-        logger.warning(f"  Stage3 데이터 수집 실패: {e}")
-    for s in samples:
-        s["stage"] = 3
+        logger.warning(f"  Wiki(ko) 실패: {e}")
+
+    # 3. TinyStories (EN 심화) — 15%
+    ts_target = int(target * 0.15)
+    logger.info(f"📥 TinyStories 로딩 (목표 {ts_target:,}건)...")
+    try:
+        ds = load_dataset("roneneldan/TinyStories", split=f"train[:{ts_target * 5}]")
+        ts_count = 0
+        for item in ds:
+            text = item.get("text", "").strip()
+            # Stage 3에서는 더 긴 길이를 채택 (500~1500자)
+            if 500 <= len(text) <= 1500:
+                samples.append({"text": text[:1500], "source": "tinystories", "stage": 3})
+                ts_count += 1
+            if ts_count >= ts_target:
+                break
+        logger.info(f"  TinyStories: {ts_count:,}건")
+    except Exception as e:
+        logger.warning(f"  TinyStories 실패: {e}")
+
+    # 4. 논리/수학/코딩 씨앗 문장 — ~5%
+    seeds = [
+        "만약 비가 온다면, 땅이 젖는다. 지금 밖은 비가 오고 있으므로 땅은 젖어 있을 것이다.",
+        "수학에서 피타고라스의 정리는 직각삼각형의 빗변의 제곱이 다른 두 변의 제곱의 합과 같다는 것을 의미한다.",
+        "컴퓨터 프로그래밍에서 변수란 데이터를 저장하기 위한 메모리 공간의 이름이다.",
+        "달은 지구를 공전하는 유일한 자연 위성이며, 한 바퀴 도는 데 약 27.3일이 걸린다.",
+        "민주주의는 국민이 권력을 가지고 그 권력을 스스로 행사하는 정치 형태이다.",
+        "If it rains, the ground gets wet. It is raining now, so the ground must be wet.",
+        "In mathematics, the Pythagorean theorem states that the square of the hypotenuse is equal to the sum of the squares of the other two sides.",
+        "A variable in computer programming is a named memory location used to store data.",
+        "The Moon is Earth's only natural satellite, taking about 27.3 days to complete one orbit.",
+        "Democracy is a form of government in which the people have the authority to choose their governing legislators.",
+    ] * 500  # ~5000건
+    for txt in seeds:
+        samples.append({"text": txt, "source": "seed_ko", "stage": 3})
+    logger.info(f"  씨앗 문장: {len(seeds):,}건")
+
     if preview:
         for s in samples[:3]:
             print(f"  [{s['source']}] {s['text'][:100]}")
