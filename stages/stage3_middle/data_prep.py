@@ -15,7 +15,10 @@ from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
+
 from core.teacher.ollama_teacher import OllamaTeacher
+from tools.collect_data import load_sharegpt_ko
+from stages.stage2_elementary.data_prep import load_tinystories
 
 # ── 로그 설정 ─────────────────────────────────────────────────────────────────
 Path("logs").mkdir(exist_ok=True)
@@ -131,7 +134,7 @@ def load_wiki_paragraphs(max_samples: int = 12000) -> list[dict]:
     try:
         from datasets import load_dataset
         logger.info(f"📥 Korean Wikipedia ({max_samples:,}건)...")
-        ko_ds = load_dataset("wikimedia/wikipedia", "20231101.ko", split="train[:600]")
+        ko_ds = load_dataset("wikimedia/wikipedia", "20231101.ko", split="train[:10000]")
         for item in ko_ds:
             if len(samples) >= max_samples:
                 break
@@ -192,8 +195,15 @@ def main():
 
     all_samples = []
     all_samples += generate_cot_data(max_workers=2)       # CoT 핵심 ★
-    all_samples += load_wiki_paragraphs(max_samples=12000)
-    all_samples += load_replay(max_per_stage=3000)
+    all_samples += load_wiki_paragraphs(max_samples=150000)
+    
+    logger.info("📥 ShareGPT_Ko 로드 중...")
+    all_samples += load_sharegpt_ko(target=100000, stage_idx=3, min_len=150, max_len=1000, max_turns=6)
+    
+    logger.info("📥 TinyStories 로드 중...")
+    all_samples += load_tinystories(max_samples=100000)
+    
+    all_samples += load_replay(max_per_stage=15000)
     all_samples += generate_synthetic(n=300)
 
     # 중복 제거 + 셔플

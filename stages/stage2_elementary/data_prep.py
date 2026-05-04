@@ -205,7 +205,7 @@ def load_korean_wiki(max_sentences: int = 10000) -> list[dict]:
     try:
         from datasets import load_dataset
         logger.info(f"📥 Korean Wikipedia ({max_sentences:,}문장)...")
-        ko_ds = load_dataset("wikimedia/wikipedia", "20231101.ko", split="train[:400]")
+        ko_ds = load_dataset("wikimedia/wikipedia", "20231101.ko", split="train[:5000]")
         for item in ko_ds:
             if len(samples) >= max_sentences:
                 break
@@ -266,13 +266,13 @@ def main():
     all_samples += generate_teacher_qa(n_articles=150)
 
     # 2. TinyStories
-    all_samples += load_tinystories(max_samples=12000)
+    all_samples += load_tinystories(max_samples=200000)
 
     # 3. Korean Wikipedia
-    all_samples += load_korean_wiki(max_sentences=8000)
+    all_samples += load_korean_wiki(max_sentences=150000)
 
     # 4. Stage 0+1 리플레이 (망각 방지)
-    all_samples += load_replay(ratio=0.15, max_per_stage=4000)
+    all_samples += load_replay(ratio=0.15, max_per_stage=10000)
 
     # 5. Ollama 합성 데이터
     all_samples += generate_synthetic(n=300)

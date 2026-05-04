@@ -12,6 +12,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))
 from core.teacher.ollama_teacher import OllamaTeacher
+from tools.collect_data import load_sharegpt_ko
 
 Path("logs").mkdir(exist_ok=True)
 _ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -170,7 +171,11 @@ def main():
     all_samples = []
     all_samples += generate_scored_qa(n_articles=100, score_threshold=0.6)
     all_samples += generate_essays(max_workers=2)
-    all_samples += load_wiki(max_samples=10000)
+    all_samples += load_wiki(max_samples=40000)
+    
+    logger.info("📥 ShareGPT_Ko (심화) 로드 중...")
+    all_samples += load_sharegpt_ko(target=50000, stage_idx=4, min_len=250, max_len=1000, max_turns=8)
+    
     all_samples += load_replay(max_per_stage=2000)
 
     seen = set()

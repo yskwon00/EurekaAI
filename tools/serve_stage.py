@@ -139,7 +139,7 @@ def generate_text(prompt: str, max_tokens: int = 200, temperature: float = 0.8,
 
     # 학습 데이터 형식에 맞게 프롬프트 구성
     # 위키 단락 or Q&A 형식 모두 지원
-    if _stage >= 3:
+    if _stage >= 2:
         # "Q: {질문}\nA: " 형식 — 학습 데이터와 정확히 일치
         full_prompt = f"Q: {prompt}\nA: "
     else:
