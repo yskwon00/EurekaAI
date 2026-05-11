@@ -24,9 +24,9 @@ logging.basicConfig(level=logging.INFO, handlers=[
 logger = logging.getLogger(__name__)
 logger.info(f"📄 로그: {_log_file}")
 
-STAGE_DIR  = Path("data/processed/stage4")
-TRAIN_FILE = STAGE_DIR / "train_stage4.jsonl"
-EVAL_FILE  = STAGE_DIR / "eval_stage4.jsonl"
+STAGE_DIR  = Path("data/processed/stage4_high")
+TRAIN_FILE = STAGE_DIR / "train_stage4_high.jsonl"
+EVAL_FILE  = STAGE_DIR / "eval_stage4_high.jsonl"
 TARGET_EVAL = 2000
 PREV_STAGES = [Path(f"data/processed/stage{i}/train_stage{i}.jsonl") for i in range(4)]
 
@@ -174,7 +174,7 @@ def main():
     all_samples += load_wiki(max_samples=40000)
     
     logger.info("📥 ShareGPT_Ko (심화) 로드 중...")
-    all_samples += load_sharegpt_ko(target=50000, stage_idx=4, min_len=250, max_len=1000, max_turns=8)
+    all_samples += load_sharegpt_ko(target=80000, stage_idx=4, min_len=150, max_len=1200, max_turns=10)
     
     all_samples += load_replay(max_per_stage=2000)
 

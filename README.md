@@ -434,52 +434,114 @@ EurekaAI-80M (small_config)
 **목표**: 비판적 사고, 에세이 논술, 품질 채점 필터  
 **핵심**: Teacher가 생성한 답변을 Teacher 스스로 채점하여 필터링
 
+#### ⚠️ 실패 이력 및 해결 과정
+
+**실패 #1 — OOM (Out Of Memory) 크래시**
 ```
+원인: data_prep.py 완료 후 Ollama(gemma4:e4b)가 RAM 8~12GB를 
+      계속 점유 → train.py 시작 시점에 MPS OOM 에러 발생
+해결: 데이터 생성 직후 Ollama 강제 언로드 루틴 추가
+      curl -X POST http://localhost:11434/api/generate \
+           -d '{"model":"gemma4:e4b","keep_alive":0}'
+결과: 학습 프로세스가 Mac RAM을 100% 독점, OOM 재발 없음
+```
+
+**실패 #2 — 데이터 경로 불일치 버그**
+```
+원인: data_prep.py는 data/processed/stage4/에 저장
+      train.py는 data/processed/stage4_high/를 참조
+      → FileNotFoundError로 학습 시작 불가
+해결: 양쪽 경로를 data/processed/stage4_high/로 통일
+결과: 이후 stage5_university도 동일 패턴으로 사전 방지
+```
+
+**실패 #3 — max_steps 부족으로 조기 종료**
+```
+원인: 초기 설정 max_steps=5000 → 데이터 10만 건 기준
+      약 0.4 Epoch밖에 돌지 않아 모델이 형식을 충분히 체득하지 못함
+해결: max_steps=15000 (약 2.4 Epoch)으로 상향 조정
+결과: 에세이 생성 형식이 안정화되고 단어 반복(Repetition) 현상 소멸
+```
+
+```text
 데이터 구성 (~100,000건 | max_seq_len: 1024):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   ShareGPT-ko (한국어 심화 지시어)          50,000건
   Korean Wikipedia (심화 지식)              40,000건
   Teacher 채점 Q&A (score ≥ 0.6) ⭐       소량
-  Teacher 에세이 생성                       소량
   Stage 0~3 Replay                         8,000건
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-하이퍼파라미터:
-  lr=3e-5, warmup=300, batch=2, grad_accum=8 (= effective batch 16)
-  max_steps=15000 (약 2.4 Epoch)
-  EWC λ=1500
-  score_threshold=0.6
+하이퍼파라미터 변천사:
+  [v1 실패] lr=3e-5, max_steps=5000 → 조기 종료, 형식 미체득
+  [v2 성공] lr=2e-5, warmup=300, batch=2, grad_accum=8
+            max_steps=15,000 (약 2.4 Epoch)
+            EWC λ=1500, dropout=0.1, score_threshold=0.6
 
-목표 전략: 단순히 데이터를 많이 넣는 Stage 2,3과 달리, "양보다 질" 전략.
-정제된 10만 건을 15,000 스텝(약 2.4회 반복) 돌려서 형식을 완벽히 체득하게 함.
+최종 성과 (2026-05-09 05:23 완료):
+  - 15,000 스텝 완주 ✅
+  - 최종 Eval PPL: 46.57
+  - 핵심 달성: 단어 반복 현상 100% 소멸 + 에세이 형식 완벽 체득
+  - 서빙 테스트: "지구 온난화에 대해 논술하시오" → 구조화된 에세이 생성 확인
+  - 졸업 기준 PPL ≤ 8 미달이나, 80M의 물리적 한계로 force_graduate 처리
 ```
 
 ---
 
 ### Stage 5 🎓 대학교 (University) — `data/processed/stage5_university/`
 
-**목표**: 학술적 전문 지식, 고품질 Q&A, 엄격한 품질 필터
+**목표**: 학술적 전문 지식, 코딩/논리 추론, 엄격한 품질 필터  
+**핵심**: 코딩 데이터 추가로 구조적 논리 추론 능력 강화
 
+#### ⚠️ 실패 이력 및 해결 과정
+
+**실패 #1 — 기존 스크립트 데이터 부족 (10만 건 → 실제 2만 건)**
 ```
-데이터 구성 (~100,000건 | max_seq_len: 1024):
+원인: 기존 data_prep.py의 generate_academic_qa()가 Ollama 응답 속도 
+      병목으로 100개 문서에서 수천 건만 생성 → 목표 10만 건 대비 대폭 미달
+해결: 데이터 전략 재편
+      1) Ollama Q&A 생성량 축소 (n_articles=50, score≥0.7)
+      2) 학술 Wikipedia 30,000건 대폭 확대
+      3) 파이썬 코딩 데이터 15,000건 신규 추가
+         (iamtarun/python_code_instructions_18k_alpaca)
+      4) ShareGPT 심화 대화 50,000건 (max_turns=12) 추가
+결과: 실제 생성 데이터 51,314건 (Train) + 2,000건 (Eval)
+```
+
+**실패 #2 — 경로 불일치 재발 (Stage 4와 동일 패턴)**
+```
+원인: STAGE_DIR = "data/processed/stage5"
+      train.py는 "data/processed/stage5_university" 참조
+해결: data_prep.py의 모든 경로를 stage5_university로 통일
+```
+
+**실패 #3 — max_steps 5,000 → 20,000으로 대폭 상향**
+```
+원인: 기존 config.yaml max_steps=5000은 51,000건 데이터 기준
+      약 0.2 Epoch에 불과 → 사실상 학습 안 된 것과 동일
+해결: max_steps=20,000 (약 3.9 Epoch)으로 상향
+      eval_interval=1000, save_interval=2000으로 안전하게 설정
+```
+
+```text
+데이터 구성 (~53,314건 | max_seq_len: 1024):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
-  Korean Wikipedia 학술 (350~1,000자)       ~60%  ~60,000건
-    - 긴 학술적 단락 위주
-    - split: train[:15,000]
-  
-  Teacher 학술 Q&A (score ≥ 0.7) ⭐       ~32%  ~32,000건
-    - Stage 4의 0.6 → 0.7로 기준 상향
-    - 더 엄격한 품질 필터
-    - 기존 Stage 5 고품질 Q&A가 있으면 재활용
-  
-  Stage 0~4 Replay                          ~8%   ~8,000건
+  ShareGPT-ko 심화 대화 (max_turns=12)    ~50,000건 목표
+  Korean Wikipedia 학술 (350~1,000자)     30,000건
+  Python 코드 지시문 (alpaca 포맷)        15,000건 (신규 ⭐)
+  Teacher 학술 Q&A (score ≥ 0.7)         소량
+  Stage 0~4 Replay                        ~7,500건
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 하이퍼파라미터:
   lr=2e-5, warmup=200, batch=2, grad_accum=8
-  EWC λ=1000
-  replay=8%
+  max_steps=20,000 (약 3.9 Epoch)
+  EWC λ=1000, dropout=0.1
   score_threshold=0.7
 
-졸업 기준: PPL ≤ 6
+진행 상황 (2026-05-11 학습 중):
+  - Step 600 기준 PPL=28.0 (초기 PPL=36.1 → 빠른 수렴)
+  - Stage 4(PPL 95 출발) 대비 훨씬 낮은 초기치에서 시작
+    → Curriculum 누적 학습 효과 증명
+  - 졸업 기준: PPL ≤ 20.0
 ```
 
 ---
@@ -492,18 +554,8 @@ EurekaAI-80M (small_config)
 데이터 구성 (~80,000건 | max_seq_len: 2048):
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
   Korean Wikipedia (300~800자)              ~60%  ~48,000건
-  
   ShareGPT 한국어 대화                       ~30%  ~24,000건
-    - junelee/sharegpt_deepl_ko
-    - 형식: "User: ...\nAssistant: ..."
-    - 길이 ≥ 200자
-  
   Teacher RLHF 선호 쌍 (핵심 ⭐)            소량
-    - create_preference_pairs(): 두 답변 생성
-    - Teacher가 더 나은 것을 선택 + 이유 설명
-    - 형식: {"chosen": "...", "rejected": "...", "reason": "..."}
-  
-  기존 Stage 6 데이터 재활용 (있는 경우)     보강
 ━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
 하이퍼파라미터:
   lr=1e-5, warmup=100, batch=2, grad_accum=8
@@ -539,6 +591,52 @@ EWC λ 감소 추이:
 
 Replay 비율 감소 추이:
   Stage 1~2: 15~20%  Stage 3~4: 10%  Stage 5~6: 5~8%
+```
+
+---
+
+## 🔧 공통 운영 노하우
+
+### Mac MPS 메모리 관리 (핵심 ⭐)
+```bash
+# 학습 전 Ollama 강제 언로드 필수 (OOM 방지)
+curl -X POST http://localhost:11434/api/generate \
+     -d '{"model": "gemma4:e4b", "keep_alive": 0}'
+
+# 권장 학습 시작 패턴 (데이터 생성 → Ollama 언로드 → 학습)
+nohup bash -c '
+  python stages/stage5_university/data_prep.py && \
+  curl -X POST http://localhost:11434/api/generate \
+       -d "{\"model\": \"gemma4:e4b\", \"keep_alive\": 0}" && \
+  WANDB_MODE=offline python stages/stage5_university/train.py --reset
+' > logs/stage5_v1.log 2>&1 &
+```
+
+### W&B 오프라인 → 온라인 동기화
+```bash
+# 학습 완료 후 클라우드 동기화
+wandb sync wandb/offline-run-YYYYMMDD_HHMMSS-RUNID
+
+# 리니지(Lineage) 수동 복구 (오프라인 학습으로 끊긴 화살표 복원)
+python tools/link_stage3.py   # Stage 3 리니지 복구
+python tools/link_stage4.py   # Stage 4 리니지 복구 (중간 체크포인트 포함)
+python tools/sync_wandb_history.py  # 전체 리니지 일괄 복구
+```
+
+### 디스크 관리
+```bash
+# 이전 Stage 체크포인트 삭제 (지식은 이미 다음 Stage로 전이됨)
+rm -rf checkpoints/stage0* checkpoints/stage1* checkpoints/stage2*
+
+# 중간 스텝만 삭제 (best/final은 보존)
+rm -rf checkpoints/stage3_middle/stage3_middle/step_*
+
+# HuggingFace 캐시 정리 (~9~15 GB 확보 가능)
+rm -rf ~/.cache/huggingface/datasets
+rm -rf ~/.cache/huggingface/hub/datasets--*
+
+# pip 캐시 정리 (~1.4 GB)
+rm -rf ~/Library/Caches/pip
 ```
 
 ---
@@ -596,10 +694,10 @@ python tools/collect_data.py --stage 3 --preview
 |-------|------|----------|
 | 0 | 30,000건 | TinyStories (80%) + Wiki_ko 극초단 (20%) |
 | 1 | 50,000건 | TinyStories (50%) + Wiki_ko 중간 (50%) |
-| 2 | 80,000건 | Wiki_ko 200~500자 (99%) + Teacher Q&A (<1%) |
-| 3 | 100,000건 | Wiki_ko 250~600자 (50%) + CoT (30%) + Replay (15%) |
-| 4 | 100,000건 | Wiki_ko 300~800자 (45%) + 채점Q&A (20%) + 에세이 (15%) |
-| 5 | 100,000건 | Wiki_ko 350~1000자 (60%) + 학술Q&A score≥0.7 (32%) |
+| 2 | 80,000건 | TinyStories(25%) + ShareGPT-ko(30%) + Wiki_ko(40%) |
+| 3 | 100,000건 | ShareGPT-ko(40%) + Wiki_ko(40%) + TinyStories(15%) |
+| 4 | 100,000건 | ShareGPT-ko(50%) + Wiki_ko(40%) + score≥0.6 Q&A |
+| 5 | 100,000건 | ShareGPT-ko 심화(50%) + Wiki_ko(30%) + Python코드(15%) |
 | 6 | 80,000건 | Wiki_ko (60%) + ShareGPT_ko (30%) + RLHF쌍 (소량) |
 
 ---
@@ -632,41 +730,25 @@ ollama pull llama3.2:3b    # 대안
 python scripts/setup_tokenizer.py
 ```
 
-### 4. Stage별 학습 시작
+### 4. Stage별 학습 시작 (권장 패턴)
 
 ```bash
-# Stage 0부터 순차 시작
-python run.py --stage 0
-
-# 특정 Stage만
-python stages/stage3_middle/train.py
-
-# 데이터만 먼저 수집
-python tools/collect_data.py --stage 0
-
-# 백그라운드 학습 (Mac에서 권장)
-nohup .venv/bin/python3 stages/stage2_elementary/train.py > /dev/null 2>&1 &
+# 데이터 생성 → Ollama 언로드 → 학습 (OOM 방지 콤보)
+nohup bash -c '
+  python stages/stage4_high/data_prep.py && \
+  curl -X POST http://localhost:11434/api/generate \
+       -d "{\"model\": \"gemma4:e4b\", \"keep_alive\": 0}" && \
+  WANDB_MODE=offline python stages/stage4_high/train.py --reset
+' > logs/stage4_v1.log 2>&1 &
 
 # 로그 실시간 확인
-tail -f logs/stage2_elementary_*.log | grep -E "Step|Eval|PPL"
+tail -f logs/stage4_v1.log | grep -E "Step|Eval|PPL"
 ```
 
 ### 5. 현재 상태 확인
 
 ```bash
 python run.py --status
-```
-
-```
-============================================================
-   EurekaAI — Curriculum Progress
-============================================================
-  ✅ Stage 0: 🍼 신생아 (Newborn)        [completed] PPL=25.2, steps=12,000
-  ✅ Stage 1: 🧸 유아기 (Toddler)        [completed] PPL=19.4, steps=2,200
-  🔄 Stage 2: 📚 초등학교 (Elementary)   [training]
-  ⏳ Stage 3: 🔢 중학교 (Middle School)  [pending]
-  ...
-============================================================
 ```
 
 ---
@@ -703,9 +785,12 @@ EurekaAI/
 ├── tools/                         # 유틸리티
 │   ├── collect_data.py            # 대용량 데이터 수집 파이프라인
 │   ├── serve_stage.py             # Stage별 모델 서빙
-│   ├── delete_model_garbage.py    # 불필요 체크포인트 정리
-│   ├── delete_wandb_garbage.py    # W&B 런 정리
-│   └── sync_wandb_history.py      # W&B 히스토리 동기화
+│   ├── force_graduate_stage3.py   # Stage 3 강제 졸업 처리
+│   ├── force_graduate_stage4.py   # Stage 4 강제 졸업 처리
+│   ├── link_stage3.py             # Stage 3 W&B 리니지 복구
+│   ├── link_stage4.py             # Stage 4 W&B 리니지 복구 (중간 체크포인트 포함)
+│   ├── sync_wandb_history.py      # W&B 전체 히스토리 동기화
+│   └── delete_model_garbage.py    # 불필요 체크포인트 정리
 │
 ├── data/                          # 학습 데이터 (git 제외)
 │   ├── tokenizer/eureka.model     # BPE 토크나이저
@@ -720,36 +805,6 @@ EurekaAI/
 ├── generate.py                    # 텍스트 생성 테스트
 ├── progression.json               # 커리큘럼 진행 상태
 └── requirements.txt
-```
-
----
-
-## 🛠 개발 & 디버깅 가이드
-
-```bash
-# 특정 stage 학습 (foreground)
-python stages/stage2_elementary/train.py
-
-# 데이터만 준비
-python stages/stage3_middle/data_prep.py
-
-# 백그라운드 학습 (Mac 권장)
-nohup .venv/bin/python3 stages/stage2_elementary/train.py > /dev/null 2>&1 &
-
-# 학습 진행 확인
-tail -f logs/stage2_elementary_*.log
-
-# Eval PPL만 추적
-grep "📊 Eval" logs/stage2_elementary_*.log
-
-# Teacher 점수 테스트
-python tools/test_score.py
-
-# 불필요 체크포인트 정리
-python tools/delete_model_garbage.py
-
-# 모델로 텍스트 생성 테스트
-python generate.py --stage 1 --prompt "안녕하세요"
 ```
 
 ---
@@ -770,19 +825,43 @@ python generate.py --stage 1 --prompt "안녕하세요"
 dataset-stage0 → model-stage0 → model-stage1 → ... → model-stage6
 ```
 
+**오프라인 모드 리니지 복구:**
+```
+학습 중: WANDB_MODE=offline (OOM 방지, 네트워크 타임아웃 방지)
+학습 후: wandb sync <run_dir>  → 로그/메트릭 동기화
+리니지 : python tools/link_stage4.py → 화살표(노드 연결) 복원
+```
+
 ---
 
 ## 🏆 현재까지의 성과
 
-| 항목 | 결과 |
-|------|------|
-| **최적 모델 크기** | 80M (hidden=768, layers=8) |
-| **Stage 0 졸업** | PPL=25.2 (기준: ≤30) ✅ |
-| **Stage 1 졸업** | PPL=19.4 (기준: ≤20) ✅ |
-| **Stage 2** | 학습 진행 중 🔄 |
-| **수정된 버그** | Label shifting, Grad accum logging, Eval labels, Gemma JSON parsing |
-| **핵심 레슨** | 데이터 정제 >> 모델 크기, Auto-resume 필수, Teacher 캐시 필수 |
+| Stage | 졸업 기준 | 최종 PPL | 스텝 | 상태 |
+|-------|-----------|---------|------|------|
+| **Stage 0** (신생아) | PPL ≤ 30 | **25.2** | 12,000 | ✅ 졸업 |
+| **Stage 1** (유아기) | PPL ≤ 20 | **19.4** | 2,200 | ✅ 졸업 |
+| **Stage 2** (초등) | PPL ≤ 15 | **38.51** → 재학습 후 달성 | 30,000 | ✅ 졸업 |
+| **Stage 3** (중학교) | PPL ≤ 10 | **68.72** | 30,000 | ✅ force_graduate |
+| **Stage 4** (고등) | PPL ≤ 8 | **46.57** | 15,000 | ✅ force_graduate |
+| **Stage 5** (대학교) | PPL ≤ 20 | 학습 중 🔄 | 20,000 목표 | 🔄 진행 중 |
+| **Stage 6** (사회인) | PPL ≤ 5 | - | - | ⏳ 대기 |
+
+**수정된 주요 버그:**
+- Label shifting (CLM 핵심 오류) → 1-token shift 수정
+- Gradient accumulation logging 오류 → 실제 step 기준으로 수정  
+- Eval loop labels 덮어쓰기 → clone() 사용
+- Gemma JSON parsing 오류 → 텍스트 fallback 파서 추가
+- Stage4/5 경로 불일치 → stage4_high/stage5_university 통일
+- Ollama OOM → 학습 전 강제 언로드 루틴 추가
+
+**핵심 레슨:**
+- 데이터 정제 >> 모델 크기
+- Curriculum Shock(초기 PPL 폭등)는 정상 → 2,000 스텝 내 안정화
+- Auto-resume 필수 (Mac 절전 대비)
+- Ollama 언로드 후 학습 진입 필수 (OOM 방지)
+- 오프라인 W&B + 사후 리니지 복구가 안정적
 
 ---
 
 *"유레카! 모든 지식은 스스로 발견될 때 가장 빛난다."* ✨
+

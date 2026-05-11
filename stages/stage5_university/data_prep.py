@@ -22,9 +22,9 @@ logging.basicConfig(level=logging.INFO, handlers=[
 logger = logging.getLogger(__name__)
 logger.info(f"📄 로그: {_log_file}")
 
-STAGE_DIR  = Path("data/processed/stage5")
-TRAIN_FILE = STAGE_DIR / "train_stage5.jsonl"
-EVAL_FILE  = STAGE_DIR / "eval_stage5.jsonl"
+STAGE_DIR  = Path("data/processed/stage5_university")
+TRAIN_FILE = STAGE_DIR / "train_stage5_university.jsonl"
+EVAL_FILE  = STAGE_DIR / "eval_stage5_university.jsonl"
 TARGET_EVAL = 2000
 PREV_STAGES = [Path(f"data/processed/stage{i}/train_stage{i}.jsonl") for i in range(5)]
 
@@ -87,6 +87,31 @@ def load_academic_wiki(max_samples: int = 15000) -> list[dict]:
         logger.warning(f"⚠️  Wikipedia 실패: {e}")
     return samples
 
+def load_python_code(max_samples: int = 15000) -> list[dict]:
+    """파이썬 코드 및 로직 데이터 수집."""
+    samples = []
+    try:
+        from datasets import load_dataset
+        code_ds = load_dataset("iamtarun/python_code_instructions_18k_alpaca", split="train")
+        for item in code_ds:
+            if len(samples) >= max_samples: break
+            inst = item.get("instruction", "").strip()
+            inp = item.get("input", "").strip()
+            out = item.get("output", "").strip()
+            if not inst or not out: continue
+            
+            text = f"User: {inst}"
+            if inp: text += f"\nInput: {inp}"
+            text += f"\nAssistant:\n```python\n{out}\n```"
+            
+            samples.append({"text": text, "source": "python_code", "stage": 5})
+            
+        random.shuffle(samples)
+        logger.info(f"✅ 파이썬 코드 데이터: {len(samples):,}건")
+    except Exception as e:
+        logger.warning(f"⚠️  파이썬 코드 로드 실패: {e}")
+    return samples
+
 def load_replay(max_per_stage: int = 1500) -> list[dict]:
     samples = []
     for path in PREV_STAGES:
@@ -110,9 +135,24 @@ def main():
     logger.info("=" * 60)
     logger.info("   EurekaAI — Stage 5: University Data Preparation")
     logger.info("=" * 60)
+    logger.info("=" * 60)
     all_samples = []
-    all_samples += generate_academic_qa(n_articles=100, score_threshold=0.7)
-    all_samples += load_academic_wiki(max_samples=15000)
+    
+    # 1. 학술 Q&A (Teacher 생성)
+    all_samples += generate_academic_qa(n_articles=50, score_threshold=0.7)
+    
+    # 2. 위키 학술 단락 (30,000건)
+    all_samples += load_academic_wiki(max_samples=30000)
+    
+    # 3. 파이썬 코딩/로직 데이터 (15,000건)
+    all_samples += load_python_code(max_samples=15000)
+    
+    # 4. ShareGPT 심화 대화 (50,000건)
+    from tools.collect_data import load_sharegpt_ko
+    logger.info("📥 ShareGPT_Ko (대학/심화) 로드 중...")
+    all_samples += load_sharegpt_ko(target=50000, stage_idx=5, min_len=200, max_len=1500, max_turns=12)
+
+    # 5. 이전 스테이지 리플레이
     all_samples += load_replay(max_per_stage=1500)
 
     seen = set()

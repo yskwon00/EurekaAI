@@ -52,3 +52,5 @@ htmlcov/
 # Model configs to KEEP tracked
 !stages/**/config.yaml
 !config/
+..
+test_output.txt
