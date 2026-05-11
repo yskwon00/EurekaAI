@@ -54,3 +54,4 @@ htmlcov/
 !config/
 ..
 test_output.txt
+models/gguf/*.gguf
