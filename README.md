@@ -843,8 +843,8 @@ dataset-stage0 → model-stage0 → model-stage1 → ... → model-stage6
 | **Stage 2** (초등) | PPL ≤ 15 | **38.51** → 재학습 후 달성 | 30,000 | ✅ 졸업 |
 | **Stage 3** (중학교) | PPL ≤ 10 | **68.72** | 30,000 | ✅ force_graduate |
 | **Stage 4** (고등) | PPL ≤ 8 | **46.57** | 15,000 | ✅ force_graduate |
-| **Stage 5** (대학교) | PPL ≤ 20 | 학습 중 🔄 | 20,000 목표 | 🔄 진행 중 |
-| **Stage 6** (사회인) | PPL ≤ 5 | - | - | ⏳ 대기 |
+| **Stage 5** (대학교) | PPL ≤ 20 | **19.0** | 20,000 | ✅ 졸업 |
+| **Stage 6** (사회인) | PPL ≤ 5 | **29.5** (Capacity Bottleneck 확인) | 17,700 | ✅ force_graduate |
 
 **수정된 주요 버그:**
 - Label shifting (CLM 핵심 오류) → 1-token shift 수정
